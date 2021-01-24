@@ -178,6 +178,32 @@ error by the compiler to pass a `String` to `generateInstance`. We are starting 
 our library that uses domain concepts to express input and output details. Updates to the `Totp` class are skipped here
 for brevity, and because this class will change significantly before our end state.
 
+## Introducing lambda
+
+Before we continue, we are going to add another library to assist us:
+
+```xml
+<dependency>
+    <groupId>com.jnape.palatable</groupId>
+    <artifactId>lambda</artifactId>
+    <version>5.3.0</version>
+</dependency>
+
+<dependency>
+    <groupId>com.jnape.palatable</groupId>
+    <artifactId>lambda</artifactId>
+    <version>5.3.0</version>
+    <type>test-jar</type>
+    <scope>test</scope>
+</dependency>
+```
+
+The [lambda](https://github.com/palatable/lambda) library provides a rich set of type-safe, functional patterns that
+will allow us to remove assumptions, express our essential algorithm, and move toward a formally verifiable expression
+of our solution. While I don't consider this type of work required for software security, I do consider it a highly
+recommended practice. Security Software is difficult enough to get right, and everything we can do to make it as correct
+and verifiable should be considered.
+
 ## Essential Algebra
 
 ## Removing Assumptions
