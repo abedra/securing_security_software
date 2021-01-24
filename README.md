@@ -2,6 +2,8 @@
 
 ## Introduction
 
+TODO: Write
+
 ## Getting Familiar With Dependencies
 
 For this post, we will focus specifically on
@@ -419,6 +421,12 @@ do a little more refactoring, so let's leave the unnecessary `IO` here for now a
 
 ## Essential Algebra
 
+TODO: Write
+
 ## Revisiting our Tests
 
+TODO: Write
+
 ## Wrap-Up
+
+TODO: Write
