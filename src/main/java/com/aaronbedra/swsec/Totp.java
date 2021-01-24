@@ -2,6 +2,8 @@ package com.aaronbedra.swsec;
 
 import com.aaronbedra.swsec.Types.Seed;
 import com.aaronbedra.swsec.Types.TOTP;
+import com.jnape.palatable.lambda.io.IO;
+import com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +14,8 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
+import static com.jnape.palatable.lambda.io.IO.io;
+import static com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT.readerT;
 import static org.apache.commons.codec.binary.Hex.encodeHexString;
 
 public final class Totp {
@@ -23,12 +27,12 @@ public final class Totp {
 
     private Totp() { }
 
-    public static Seed generateSeed() {
-        SecureRandom random = new SecureRandom();
-        byte[] randomBytes = new byte[SEED_LENGTH_IN_BYTES];
-        random.nextBytes(randomBytes);
-
-        return new Seed(encodeHexString(randomBytes));
+    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
+        return readerT(secureRandom -> io(() -> {
+            byte[] randomBytes = new byte[length];
+            secureRandom.nextBytes(randomBytes);
+            return new Seed(encodeHexString(randomBytes));
+        }));
     }
 
     public static TOTP generateInstance(Seed seed) {

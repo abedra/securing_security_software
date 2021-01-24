@@ -183,19 +183,21 @@ for brevity, and because this class will change significantly before our end sta
 Before we continue, we are going to add another library to assist us:
 
 ```xml
-<dependency>
-    <groupId>com.jnape.palatable</groupId>
-    <artifactId>lambda</artifactId>
-    <version>5.3.0</version>
-</dependency>
 
-<dependency>
-    <groupId>com.jnape.palatable</groupId>
-    <artifactId>lambda</artifactId>
-    <version>5.3.0</version>
-    <type>test-jar</type>
-    <scope>test</scope>
-</dependency>
+<dependencies>
+    <dependency>
+        <groupId>com.jnape.palatable</groupId>
+        <artifactId>lambda</artifactId>
+        <version>5.3.0</version>
+    </dependency>
+    <dependency>
+        <groupId>com.jnape.palatable</groupId>
+        <artifactId>lambda</artifactId>
+        <version>5.3.0</version>
+        <type>test-jar</type>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
 ```
 
 The [lambda](https://github.com/palatable/lambda) library provides a rich set of type-safe, functional patterns that
@@ -204,9 +206,82 @@ of our solution. While I don't consider this type of work required for software 
 recommended practice. Security Software is difficult enough to get right, and everything we can do to make it as correct
 and verifiable should be considered.
 
-## Essential Algebra
-
 ## Removing Assumptions
+
+Before we get to the essential complexity behind our implementation, let's spend a little time identifying its implicit
+assumptions. This effort is a critical part of understanding how and why software can fail, and will allow us to model
+our solution more completely. This step is a very effective tool in the Software Security tool belt and goes a long way
+in producing solutions that operate correctly under uncertainty. Let's start with the `generateSeed` method.
+
+```java
+ public final class Totp {
+    // ...
+    public static Seed generateSeed() {
+        SecureRandom random = new SecureRandom();
+        byte[] randomBytes = new byte[SEED_LENGTH_IN_BYTES];
+        random.nextBytes(randomBytes);
+
+        return new Seed(encodeHexString(randomBytes));
+    }
+}
+```
+
+On the surface this method looks fairly straight forward. Its purpose is to produce a hex encoded string of random
+bytes. Unfortunately, it's filled with assumptions. Ultimately, we should be able to say
+
+> Given a number and a mechanism to furnish bytes, give me back a hex encoded string of the provided number of random bytes
+
+Sounds simple enough, right? Well, that's where the assumptions kick in. This method assumes that seed generation should
+control how byte furnishing is constructed, and the number of bytes that should be generated. This method also doesn't
+account for the fact that generating a random number using CSPRNG has a side effect. Since we're striking out on a
+number of levels, let's try a more explicit representation:
+
+```java
+public final class Totp {
+    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
+        return readerT(secureRandom -> io(() -> {
+            byte[] randomBytes = new byte[length];
+            secureRandom.nextBytes(randomBytes);
+            return new Seed(encodeHexString(randomBytes));
+        }));
+    }
+
+    public static void main(String[] args) {
+        ReaderT<SecureRandom, IO<?>, Seed> secureRandomIOSeedReaderT = generateSeed(64);
+        IO<Seed> seedIO = secureRandomIOSeedReaderT.runReaderT(new SecureRandom());
+        Seed seed = seedIO.unsafePerformIO();
+        System.out.println(seed);
+    }
+}
+```
+
+There's a bit to unpack here, so let's go through it in more detail. The `generateSeed` method no longer directly
+returns a `Seed`, but rather a function that, when run with an instance of `SecureRandom`, will produce another function
+that, when run, will perform the side effect and produce a seed. This gets us closer to our statement above and
+correctly captures the details around how random bytes are produced. The `main` above is broken down into each piece for
+clarity, but can be rewritten as:
+
+```java
+public final class Totp {
+    public static void main(String[] args) {
+        Seed seed = generateSeed(64)
+                .<IO<Seed>>runReaderT(new SecureRandom())
+                .unsafePerformIO();
+        System.out.println(seed);
+    }
+}
+```
+
+It is important to note that we have now taken the first step toward parameterizing both the mechanism that produces
+bytes, and the effect that byte production runs under. This is thanks to `ReaderT`. This post is already long enough
+that a detailed explanation of `ReaderT` is not in the cards. There is, however, a
+good [blog post](https://www.fpcomplete.com/blog/2017/06/readert-design-pattern/) on the pattern that should help build
+a foundation. The syntax is a bit different in Java, but the idea is the same.
+
+We will take parameterization a bit further on this later, but for now there's more work to do around correctly
+capturing the assumptions of our algorithm.
+
+## Essential Algebra
 
 ## Revisiting our Tests
 
