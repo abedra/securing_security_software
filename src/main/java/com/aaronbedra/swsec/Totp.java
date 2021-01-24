@@ -1,5 +1,6 @@
 package com.aaronbedra.swsec;
 
+import com.aaronbedra.swsec.Types.Counter;
 import com.aaronbedra.swsec.Types.Seed;
 import com.aaronbedra.swsec.Types.TOTP;
 import com.jnape.palatable.lambda.io.IO;
@@ -35,31 +36,29 @@ public final class Totp {
         }));
     }
 
-    public static TOTP generateInstance(Seed seed) {
-        return generateInstance(seed, counterToBytes());
-    }
+    public static IO<TOTP> generateInstance(Seed seed, IO<Counter> mkCounter) {
+        return mkCounter.flatMap(counter -> io(() -> {
+            byte[] key = hexToBytes(seed.value());
+            byte[] result = hash(key, counter.value());
 
-    public static TOTP generateInstance(Seed seed, final byte[] counter) {
-        byte[] key = hexToBytes(seed.value());
-        byte[] result = hash(key, counter);
+            if (result == null) {
+                throw new RuntimeException("Could not produce OTP value");
+            }
 
-        if (result == null) {
-            throw new RuntimeException("Could not produce OTP value");
-        }
+            int offset = result[result.length - 1] & 0xf;
+            int binary = ((result[offset]     & 0x7f) << 24) |
+                    ((result[offset + 1] & 0xff) << 16) |
+                    ((result[offset + 2] & 0xff) << 8)  |
+                    ((result[offset + 3] & 0xff));
 
-        int offset = result[result.length - 1] & 0xf;
-        int binary = ((result[offset]     & 0x7f) << 24) |
-                ((result[offset + 1] & 0xff) << 16) |
-                ((result[offset + 2] & 0xff) << 8)  |
-                ((result[offset + 3] & 0xff));
+            StringBuilder code = new StringBuilder(Integer.toString(binary % POWER));
 
-        StringBuilder code = new StringBuilder(Integer.toString(binary % POWER));
+            while (code.length() < DIGITS) {
+                code.insert(0, "0");
+            }
 
-        while (code.length() < DIGITS) {
-            code.insert(0, "0");
-        }
-
-        return new TOTP(code.toString());
+            return new TOTP(code.toString());
+        }));
     }
 
     public static byte[] counterToBytes(final long time) {
@@ -70,10 +69,6 @@ public final class Totp {
             counter = counter >> 8;
         }
         return buffer;
-    }
-
-    private static byte[] counterToBytes() {
-        return counterToBytes(System.currentTimeMillis() / 1000L);
     }
 
     private static byte[] hexToBytes(final String hex) {

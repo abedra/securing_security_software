@@ -279,7 +279,143 @@ good [blog post](https://www.fpcomplete.com/blog/2017/06/readert-design-pattern/
 a foundation. The syntax is a bit different in Java, but the idea is the same.
 
 We will take parameterization a bit further on this later, but for now there's more work to do around correctly
-capturing the assumptions of our algorithm.
+capturing the assumptions of our algorithm. Let's set our sights on `generateInstance`. To better understand what's
+going on here lets delete the convenience methods and focus explicitly on the real implementation:
+
+```java
+public final class Totp {
+    public static TOTP generateInstance(Seed seed, final byte[] counter) {
+        // ...
+    }
+
+    public static void main(String[] args) {
+        TOTP totp = generateInstance(seed, counterToBytes(System.currentTimeMillis() / 1000));
+    }
+}
+```
+
+We can express this as:
+
+> Given a seed and a counter, give me back a one time password
+
+You may have already identified the call to `System.currentTimeMillis` though and recognized the side effect. To capture
+this we should alter our expression to:
+
+> Given a seed and mechanism to furnish a counter, give me back a one time password
+
+This we can accomplish fairly easily. If we isolate the side effect we can in turn have `generateInstance` return a side
+effect:
+
+```java
+public final class Totp {
+    public static IO<TOTP> generateInstance(Seed seed, IO<Counter> mkCounter) {
+        return mkCounter.flatMap(counter -> io(() -> {
+            byte[] key = hexToBytes(seed.value());
+            byte[] result = hash(key, counter.value());
+
+            if (result == null) {
+                throw new RuntimeException("Could not produce OTP value");
+            }
+
+            int offset = result[result.length - 1] & 0xf;
+            int binary = ((result[offset] & 0x7f) << 24) |
+                    ((result[offset + 1] & 0xff) << 16) |
+                    ((result[offset + 2] & 0xff) << 8) |
+                    ((result[offset + 3] & 0xff));
+
+            StringBuilder code = new StringBuilder(Integer.toString(binary % POWER));
+
+            while (code.length() < DIGITS) {
+                code.insert(0, "0");
+            }
+
+            return new TOTP(code.toString());
+        }));
+    }
+}
+```
+
+Now our TOTP instance generation assumes a side effect. Our battle with this method is far from over, but at least it's
+no longer lying about what it does. Well, it's at least not lying about the side effect. We will take care of that
+exception shortly. Our method now runs the effect that produces our counter value and then computes the TOTP value.
+
+This is a breaking API change, and we will need to update our consumers to account for the changes. Let's start
+with `Main`:
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        generateSeed(64)
+                .<IO<Seed>>runReaderT(new SecureRandom())
+                .flatMap(seed -> generateInstance(seed, io(() -> new Counter(counterToBytes(System.currentTimeMillis() / 1000)))))
+                .flatMap(totp -> io(() -> System.out.println(totp)))
+                .unsafePerformIO();
+    }
+}
+```
+
+Because we have begun capturing our side effects, we can now run our entire program under a single `IO` operation. We
+start by running the `ReaderT` to produce the `IO` that holds our `Seed`, then we `flatMap` into the `IO` that produces
+our `TOTP`. Finally, printing to `stdout` is also a side effect, so we can `flatMap` into one final `IO` to produce our
+output. None of these `IO` operations are actually run until our call to `unsafePerformIO`. There are multiple options
+for running `IO` in lambda, but since we are running each effect strictly after the one that precedes it, options
+like `unsafePerformAsyncIO` to perform them in parallel don't apply in our scenario.
+
+Next, we need to address the changes to our test. Now is a good time to
+introduce [Shōki](https://github.com/palatable/shoki), a purely functional, persistent data structures library. This is
+going to provide some better ergonomics for our test updates. Additionally, Shoki offers an implementation of `Natural`
+that will allow us to better express our input requirements.
+
+```xml
+
+<dependency>
+    <groupId>com.jnape.palatable</groupId>
+    <artifactId>shoki</artifactId>
+    <version>1.0-alpha-2</version>
+</dependency>
+
+```
+
+With Shoki in hand, let's update our tests:
+
+```java
+public class TotpTest {
+    @Test
+    public void endToEnd() {
+        Seed seed = new Seed("3132333435363738393031323334353637383930");
+        StrictStack<Counter> counters = strictStack(
+                new Counter(counterToBytes(59L)),
+                new Counter(counterToBytes(1111111109L)),
+                new Counter(counterToBytes(1111111111L)),
+                new Counter(counterToBytes(1234567890L)),
+                new Counter(counterToBytes(2000000000L)),
+                new Counter(counterToBytes(20000000000L)));
+
+        StrictQueue<TOTP> expected = strictQueue(
+                new TOTP("287082"),
+                new TOTP("081804"),
+                new TOTP("050471"),
+                new TOTP("005924"),
+                new TOTP("279037"),
+                new TOTP("353130"));
+
+        StrictQueue<TOTP> actual = foldLeft(
+                (acc, value) -> acc.snoc(generateInstance(seed, io(() -> value)).unsafePerformIO()),
+                strictQueue(),
+                counters);
+
+        assertEquals(expected, actual);
+    }
+}
+```
+
+Along with updating our test to respect the new interface, we got rid of the older style `for` loop and landed with a
+single assertion. Because our objects are all immutable, we should be able to directly compare expected and actual, and
+get a proper equality check. The `foldLeft` operation takes the `Counter` values and accumulates the result of
+generating a `TOTP` value for each into a `StrictQueue`, so we can easily compare. You might be wondering why we need to
+wrap each of our `Counter` values in `IO`, and you would be right to question that. In our test there's no side effect
+happening to produce our value. The essential algebra is starting to reveal itself. Before we can get to that we need to
+do a little more refactoring, so let's leave the unnecessary `IO` here for now and continue forward.
 
 ## Essential Algebra
 
