@@ -1,5 +1,7 @@
 package com.aaronbedra.swsec;
 
+import com.aaronbedra.swsec.Types.Seed;
+import com.aaronbedra.swsec.Types.TOTP;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,7 +14,7 @@ import java.security.SecureRandom;
 
 import static org.apache.commons.codec.binary.Hex.encodeHexString;
 
-class Totp {
+public final class Totp {
     private static final Logger log = LoggerFactory.getLogger(Totp.class);
     private static final int SEED_LENGTH_IN_BYTES = 64;
     private static final int POWER = 1000000;
@@ -21,20 +23,20 @@ class Totp {
 
     private Totp() { }
 
-    static String generateSeed() {
+    public static Seed generateSeed() {
         SecureRandom random = new SecureRandom();
         byte[] randomBytes = new byte[SEED_LENGTH_IN_BYTES];
         random.nextBytes(randomBytes);
 
-        return encodeHexString(randomBytes);
+        return new Seed(encodeHexString(randomBytes));
     }
 
-    static String generateInstance(final String seed) {
+    public static TOTP generateInstance(Seed seed) {
         return generateInstance(seed, counterToBytes());
     }
 
-    static String generateInstance(final String seed, final byte[] counter) {
-        byte[] key = hexToBytes(seed);
+    public static TOTP generateInstance(Seed seed, final byte[] counter) {
+        byte[] key = hexToBytes(seed.value());
         byte[] result = hash(key, counter);
 
         if (result == null) {
@@ -53,20 +55,7 @@ class Totp {
             code.insert(0, "0");
         }
 
-        return code.toString();
-    }
-
-    static byte[] hexToBytes(final String hex) {
-        byte[] bArray = new BigInteger("10" + hex, 16).toByteArray();
-        byte[] ret = new byte[bArray.length - 1];
-        if (ret.length >= 0) {
-            System.arraycopy(bArray, 1, ret, 0, ret.length);
-        }
-        return ret;
-    }
-
-    private static byte[] counterToBytes() {
-        return counterToBytes(System.currentTimeMillis() / 1000L);
+        return new TOTP(code.toString());
     }
 
     public static byte[] counterToBytes(final long time) {
@@ -77,6 +66,19 @@ class Totp {
             counter = counter >> 8;
         }
         return buffer;
+    }
+
+    private static byte[] counterToBytes() {
+        return counterToBytes(System.currentTimeMillis() / 1000L);
+    }
+
+    private static byte[] hexToBytes(final String hex) {
+        byte[] bArray = new BigInteger("10" + hex, 16).toByteArray();
+        byte[] ret = new byte[bArray.length - 1];
+        if (ret.length >= 0) {
+            System.arraycopy(bArray, 1, ret, 0, ret.length);
+        }
+        return ret;
     }
 
     private static byte[] hash(final byte[] key, final byte[] message) {

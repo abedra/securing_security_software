@@ -133,6 +133,51 @@ The end-to-end test should now pass, and we have a viable baseline to use as we 
 
 ## Replacing Native Language Types
 
+Before we into the heavy lifting, I find it useful to completely break away from native language types. This practice
+can be polarizing, but I find it essential to the proper expression of the domain. This expression will become more
+obvious as we start our refactoring and introduce more complex types. This is where having Java's `Record` support comes
+in handy. This practice is borrowed from
+Haskell's [newtype](https://kowainik.github.io/posts/haskell-mini-patterns#newtype) pattern. While this example will
+mostly wrap language types in value types, this concept can and should be taken much further to model domain invariants.
+Alexis King does a [fantastic job](https://lexi-lambda.github.io/blog/2020/11/01/names-are-not-type-safety/) taking
+this [further](https://lexi-lambda.github.io/blog/2020/08/13/types-as-axioms-or-playing-god-with-static-types/).
+
+Let's start by defining types for our `Totp` class. Because the record syntax allows us to define value types in a very
+small space we can add them all to the same file. Let's start with the two essential output types of the `Totp` class.
+
+```java
+public final class Types {
+    public static record Seed(String value) {
+    }
+
+    public static record TOTP(String value) {
+    }
+}
+```
+
+We will add to this as we go, but these are the two types used by consumers of our library. Both of these have moved
+from `String` to a value type holding a string. While that might seem trivial, think of what each represents. The
+underlying value of a `Seed` is a much more sensitive value than `TOTP` and should be treated with more care. Going
+forward we now have an easy way to understand that a `Seed` is a `Seed` and can apply the appropriate restrictions.
+Let's take a look at our `Main` class to see how the program changes:
+
+```diff
+public class Main {
+    public static void main(String[] args) {
+-        String seed = Totp.generateSeed();
++        Seed seed = Totp.generateSeed();
+-        String totp = generateInstance(seed);
++        TOTP totp = generateInstance(seed);
+        System.out.println(totp);
+    }
+}
+```
+
+Consumers are minimally impacted but now have a much richer set of information to work with. It is now considered an
+error by the compiler to pass a `String` to `generateInstance`. We are starting to enforce requirements on the use of
+our library that uses domain concepts to express input and output details. Updates to the `Totp` class are skipped here
+for brevity, and because this class will change significantly before our end state.
+
 ## Essential Algebra
 
 ## Removing Assumptions
