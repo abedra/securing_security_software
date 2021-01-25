@@ -419,6 +419,133 @@ wrap each of our `Counter` values in `IO`, and you would be right to question th
 happening to produce our value. The essential algebra is starting to reveal itself. Before we can get to that we need to
 do a little more refactoring, so let's leave the unnecessary `IO` here for now and continue forward.
 
+Let's move further into our `generateInstance` method where we quickly run across an invocation of the `hash` method.
+While it's not immediately obvious if the `hash` method isn't on screen, this is the first part of the algorithm that
+introduces failure. Let's take a look at the implementation of `hash`:
+
+```java
+public final class Totp {
+    private static byte[] hash(final byte[] key, final byte[] message) {
+        try {
+            Mac hmac = Mac.getInstance("HmacSHA1");
+            SecretKeySpec keySpec = new SecretKeySpec(key, "RAW");
+            hmac.init(keySpec);
+            return hmac.doFinal(message);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            log.error(e.getMessage(), e);
+            return null;
+        }
+    }
+}
+```
+
+My oh my, where do we begin. On the plus side, if you don't look back at code you wrote previously with severe disdain,
+it's a sign you haven't grown. At least I've got that going for me. Let's itemize the things that need to change here:
+
+* Explicit types for each input and output
+* Logging has absolutely no place here and needs to be removed
+* Returning `null` carries no information about the failure and forces the consumer to handle it
+* We need a better way to propagate the failure without throwing an exception
+* JCA operations perform side effects
+
+To do this we will want a method that returns an `IO` wrapping some concept of success and failure. We can use
+an `Either` for this. A bit of refactoring and we can produce the following:
+
+```java
+public final class Totp {
+    private static IO<Either<HmacFailure, HmacResult>> hash(HmacKey key, HmacMessage message) {
+        return io(() -> trying(() -> {
+            Mac hmac = Mac.getInstance("HmacSHA1");
+            SecretKeySpec keySpec = new SecretKeySpec(key.value(), "RAW");
+            hmac.init(keySpec);
+            return new HmacResult(hmac.doFinal(message.value()));
+        }, HmacFailure::new));
+    }
+}
+```
+
+Here we capture the side effect, but consider any exception thrown inside calculating the HMac value a failure. There
+are two new records, `HmacFailure` and `HmacResult` respectively. This allows the consumer to exhaustively handle the
+outcome of calling this method, and use the success or failure information in total in whatever way is appropriate. This
+gets the logging out of the picture and lets us call that code in a more appropriate place. This is going to pretty
+dramatically change the call site and our `generateInstance` method in general. Before we refactor this method lets
+introduce two additional pure methods for calculating our `TOTP` result:
+
+```java
+public final class Totp {
+    private static TotpBinary calculateTotp(HmacResult hmacResult) {
+        byte[] result = hmacResult.value();
+        int offset = result[result.length - 1] & 0xf;
+        return new TotpBinary(((result[offset] & 0x7f) << 24) |
+                ((result[offset + 1] & 0xff) << 16) |
+                ((result[offset + 2] & 0xff) << 8) |
+                ((result[offset + 3] & 0xff)));
+    }
+
+    private static TOTP buildTotp(TotpBinary totpBinary) {
+        StringBuilder code = new StringBuilder(Integer.toString(totpBinary.value() % POWER));
+        while (code.length() < DIGITS) {
+            code.insert(0, "0");
+        }
+        return new TOTP(code.toString());
+    }
+}
+```
+
+These two methods were hiding inside `generateInstance` and are easily extracted. They are clear independent chunks of
+our algorithm that can be expressed as such. With these out of the way we can transform `generateInstance` into a
+simpler form:
+
+```java
+public final class Totp {
+    public static IO<Either<HmacFailure, TOTP>> generateInstance(Seed seed, IO<Counter> counterIO) {
+        return counterIO.flatMap(counter -> hash(new HmacKey(hexToBytes(seed.value())), new HmacMessage(counter.value()))
+                .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
+                        .biMapR(hmacResult -> buildTotp(calculateTotp(hmacResult)))));
+    }
+}
+```
+
+Yet again, another radical departure. To callers, our method went from `IO<TOTP>`, which indicates a side effect but is
+expected to produce a `TOTP` when called, to `IO<Either<HmacFailure, TOTP>>`, which forces the caller to consider and
+appropriately handle failure. The only additional code here is to provide the arrow
+from `IO<Either<HmacFailure, HmacResult>>` to `IO<Either<HmacFailure, TOTP>>`, which we solve by calling `fmap` on the
+result of our `hash` method, then calling `biMapR`, which operates on the right value of our either and transforms it
+into its final form. We can use `biMapR` here because we are currently ok with preserving the failure type and only wish
+to transform the success of `hash`.
+
+A quick update to our test to introduce the `Either` into our expected values, and we will then compile properly again.
+Our `Main` class will continue to operate without change because printing an `Either` works as expected, producing
+something similar to the following:
+
+```
+Right{r=TOTP[value=025856]}
+```
+
+Our `Main` class would be the perfect place to reintroduce our logging functionality. It's not that we want to get rid
+of logging in our applications, it's that we want to defer logging until the time we actually produce values. This helps
+us keep our side effects sorted and lets us build better logging based on the context of the caller instead of the
+context of value production. Because we preserve the full fidelity of our failure we can build a log message of all
+inputs and outputs and construct errors that are more meaningful. Let's update our `Main` class to strictly handle
+success and failure:
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        generateSeed(64)
+                .<IO<Seed>>runReaderT(new SecureRandom())
+                .flatMap(seed -> generateInstance(seed, io(() -> new Counter(counterToBytes(System.currentTimeMillis() / 1000)))))
+                .flatMap(failureOrTotp -> failureOrTotp.match(
+                        hmacFailure -> io(() -> System.out.println(hmacFailure.value().getMessage())),
+                        totp -> io(() -> System.out.println(totp))))
+                .unsafePerformIO();
+    }
+}
+```
+
+While this only changes the behavior of our program in a small way, it gives our program a clear and separate path for
+exhaustively handling the outcome of our OTP calculation.
+
 ## Essential Algebra
 
 TODO: Write

@@ -1,8 +1,7 @@
 package com.aaronbedra.swsec;
 
-import com.aaronbedra.swsec.Types.Counter;
-import com.aaronbedra.swsec.Types.Seed;
-import com.aaronbedra.swsec.Types.TOTP;
+import com.aaronbedra.swsec.Types.*;
+import com.jnape.palatable.lambda.adt.Either;
 import com.jnape.palatable.lambda.io.IO;
 import com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT;
 import org.slf4j.Logger;
@@ -11,10 +10,9 @@ import org.slf4j.LoggerFactory;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
+import static com.jnape.palatable.lambda.adt.Either.trying;
 import static com.jnape.palatable.lambda.io.IO.io;
 import static com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT.readerT;
 import static org.apache.commons.codec.binary.Hex.encodeHexString;
@@ -26,7 +24,8 @@ public final class Totp {
     private static final int PERIOD = 30;
     private static final int DIGITS = 6;
 
-    private Totp() { }
+    private Totp() {
+    }
 
     public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
         return readerT(secureRandom -> io(() -> {
@@ -36,29 +35,27 @@ public final class Totp {
         }));
     }
 
-    public static IO<TOTP> generateInstance(Seed seed, IO<Counter> mkCounter) {
-        return mkCounter.flatMap(counter -> io(() -> {
-            byte[] key = hexToBytes(seed.value());
-            byte[] result = hash(key, counter.value());
+    public static IO<Either<HmacFailure, TOTP>> generateInstance(Seed seed, IO<Counter> counterIO) {
+        return counterIO.flatMap(counter -> hash(new HmacKey(hexToBytes(seed.value())), new HmacMessage(counter.value()))
+                .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
+                        .biMapR(hmacResult -> buildTotp(calculateTotp(hmacResult)))));
+    }
 
-            if (result == null) {
-                throw new RuntimeException("Could not produce OTP value");
-            }
+    private static TotpBinary calculateTotp(HmacResult hmacResult) {
+        byte[] result = hmacResult.value();
+        int offset = result[result.length - 1] & 0xf;
+        return new TotpBinary(((result[offset] & 0x7f) << 24) |
+                ((result[offset + 1]                 & 0xff) << 16) |
+                ((result[offset + 2]                 & 0xff) << 8) |
+                ((result[offset + 3]                 & 0xff)));
+    }
 
-            int offset = result[result.length - 1] & 0xf;
-            int binary = ((result[offset]     & 0x7f) << 24) |
-                    ((result[offset + 1] & 0xff) << 16) |
-                    ((result[offset + 2] & 0xff) << 8)  |
-                    ((result[offset + 3] & 0xff));
-
-            StringBuilder code = new StringBuilder(Integer.toString(binary % POWER));
-
-            while (code.length() < DIGITS) {
-                code.insert(0, "0");
-            }
-
-            return new TOTP(code.toString());
-        }));
+    private static TOTP buildTotp(TotpBinary totpBinary) {
+        StringBuilder code = new StringBuilder(Integer.toString(totpBinary.value() % POWER));
+        while (code.length() < DIGITS) {
+            code.insert(0, "0");
+        }
+        return new TOTP(code.toString());
     }
 
     public static byte[] counterToBytes(final long time) {
@@ -80,15 +77,12 @@ public final class Totp {
         return ret;
     }
 
-    private static byte[] hash(final byte[] key, final byte[] message) {
-        try {
+    private static IO<Either<HmacFailure, HmacResult>> hash(HmacKey key, HmacMessage message) {
+        return io(() -> trying(() -> {
             Mac hmac = Mac.getInstance("HmacSHA1");
-            SecretKeySpec keySpec = new SecretKeySpec(key, "RAW");
+            SecretKeySpec keySpec = new SecretKeySpec(key.value(), "RAW");
             hmac.init(keySpec);
-            return hmac.doFinal(message);
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            log.error(e.getMessage(), e);
-            return null;
-        }
+            return new HmacResult(hmac.doFinal(message.value()));
+        }, HmacFailure::new));
     }
 }

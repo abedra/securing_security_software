@@ -14,7 +14,9 @@ public class Main {
         generateSeed(64)
                 .<IO<Seed>>runReaderT(new SecureRandom())
                 .flatMap(seed -> generateInstance(seed, io(() -> new Counter(counterToBytes(System.currentTimeMillis() / 1000)))))
-                .flatMap(totp -> io(() -> System.out.println(totp)))
+                .flatMap(failureOrTotp -> failureOrTotp.match(
+                        hmacFailure -> io(() -> System.out.println(hmacFailure.value().getMessage())),
+                        totp -> io(() -> System.out.println(totp))))
                 .unsafePerformIO();
     }
 }
