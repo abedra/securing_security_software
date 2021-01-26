@@ -9,4 +9,6 @@ public final class Types {
     public static record HmacResult(byte[] value) {}
     public static record HmacFailure(Throwable value) {}
     public static record TotpBinary(int value) {}
+    public static record TimeStep(int value) {}
+    public static record TimeStamp(long value) {}
 }

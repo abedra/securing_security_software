@@ -546,9 +546,25 @@ public class Main {
 While this only changes the behavior of our program in a small way, it gives our program a clear and separate path for
 exhaustively handling the outcome of our OTP calculation.
 
-## Essential Algebra
+## Essential Complexity
 
-TODO: Write
+Now that we've got a slightly better handle on the assumptions of our `Totp` class, we can start to unpack the essential
+complexity required to accomplish our task. Let's start by peeking at what's hiding in the top of the class:
+
+```java
+public final class Totp {
+    private static final Logger log = LoggerFactory.getLogger(Totp.class);
+    private static final int SEED_LENGTH_IN_BYTES = 64;
+    private static final int POWER = 1000000;
+    private static final int PERIOD = 30;
+    private static final int DIGITS = 6;
+}
+```
+
+If you are looking at this code in an IDE, it should have already pointed out that `log` and `SEED_LENGTH_IN_BYTES` are
+both no longer used. We can safely delete those immediately, and we should aim to delete the rest as well. The things
+these parameters represent, except logging, are all part of the OTP process, but this class has no
+business dictating exactly what they should be.
 
 ## Revisiting our Tests
 
