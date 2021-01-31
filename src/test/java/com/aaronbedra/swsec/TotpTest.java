@@ -7,6 +7,7 @@ import com.jnape.palatable.shoki.impl.StrictStack;
 import org.junit.Test;
 
 import static com.aaronbedra.swsec.OTP.otp6;
+import static com.aaronbedra.swsec.TimeStep.timeStep30;
 import static com.aaronbedra.swsec.Totp.counter;
 import static com.aaronbedra.swsec.Totp.generateInstance;
 import static com.jnape.palatable.lambda.adt.Either.right;
@@ -20,12 +21,12 @@ public class TotpTest {
     public void endToEnd() {
         Seed seed = new Seed("3132333435363738393031323334353637383930");
         StrictStack<Counter> counters = strictStack(
-                counter(new TimeStamp(59L), new TimeStep(30)),
-                counter(new TimeStamp(1111111109L), new TimeStep(30)),
-                counter(new TimeStamp(1111111111L), new TimeStep(30)),
-                counter(new TimeStamp(1234567890L), new TimeStep(30)),
-                counter(new TimeStamp(2000000000L), new TimeStep(30)),
-                counter(new TimeStamp(20000000000L), new TimeStep(30)));
+                counter(new TimeStamp(59L), timeStep30()),
+                counter(new TimeStamp(1111111109L), timeStep30()),
+                counter(new TimeStamp(1111111111L), timeStep30()),
+                counter(new TimeStamp(1234567890L), timeStep30()),
+                counter(new TimeStamp(2000000000L), timeStep30()),
+                counter(new TimeStamp(20000000000L), timeStep30()));
 
         StrictQueue<Either<HmacFailure, TOTP>> expected = strictQueue(
                 right(new TOTP("287082")),
