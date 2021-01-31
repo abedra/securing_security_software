@@ -3,31 +3,24 @@ package com.aaronbedra.swsec;
 import com.aaronbedra.swsec.Types.*;
 import com.jnape.palatable.lambda.adt.Either;
 import com.jnape.palatable.lambda.io.IO;
-import com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
-import java.security.SecureRandom;
 
 import static com.jnape.palatable.lambda.adt.Either.trying;
 import static com.jnape.palatable.lambda.io.IO.io;
-import static com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT.readerT;
-import static org.apache.commons.codec.binary.Hex.encodeHexString;
 
 public final class Totp {
+    private static record TotpBinary(int value) {}
+    private static record HmacKey(byte[] value) {}
+    private static record HmacMessage(byte[] value) {}
+    private static record HmacResult(byte[] value) {}
+
     private Totp() {
     }
 
-    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
-        return readerT(secureRandom -> io(() -> {
-            byte[] randomBytes = new byte[length];
-            secureRandom.nextBytes(randomBytes);
-            return new Seed(encodeHexString(randomBytes));
-        }));
-    }
-
-    public static IO<Either<HmacFailure, TOTP>> generateInstance(OTP otp, Seed seed, Counter counter) {
+    public static IO<Either<Failure, TOTP>> generateInstance(OTP otp, Seed seed, Counter counter) {
         return hash(hmacKey(seed), new HmacMessage(counter.value()))
                 .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
                         .biMapR(hmacResult -> buildTotp(calculateTotp(hmacResult), otp)));
@@ -50,16 +43,6 @@ public final class Totp {
         return new TOTP(code.toString());
     }
 
-    public static Counter counter(TimeStamp timeStamp, TimeStep timeStep) {
-        long counter = timeStamp.value() / timeStep.value();
-        byte[] buffer = new byte[Long.SIZE / Byte.SIZE];
-        for (int i = 7; i >= 0; i--) {
-            buffer[i] = (byte) (counter & 0xff);
-            counter = counter >> 8;
-        }
-        return new Counter(buffer);
-    }
-
     private static HmacKey hmacKey(Seed seed) {
         byte[] bArray = new BigInteger("10" + seed.value(), 16).toByteArray();
         byte[] ret = new byte[bArray.length - 1];
@@ -69,12 +52,12 @@ public final class Totp {
         return new HmacKey(ret);
     }
 
-    private static IO<Either<HmacFailure, HmacResult>> hash(HmacKey key, HmacMessage message) {
+    private static IO<Either<Failure, HmacResult>> hash(HmacKey key, HmacMessage message) {
         return io(() -> trying(() -> {
             Mac hmac = Mac.getInstance("HmacSHA1");
             SecretKeySpec keySpec = new SecretKeySpec(key.value(), "RAW");
             hmac.init(keySpec);
             return new HmacResult(hmac.doFinal(message.value()));
-        }, HmacFailure::new));
+        }, Failure::new));
     }
 }

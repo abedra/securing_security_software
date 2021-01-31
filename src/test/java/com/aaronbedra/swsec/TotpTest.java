@@ -8,8 +8,8 @@ import org.junit.Test;
 
 import static com.aaronbedra.swsec.OTP.otp6;
 import static com.aaronbedra.swsec.TimeStep.timeStep30;
-import static com.aaronbedra.swsec.Totp.counter;
 import static com.aaronbedra.swsec.Totp.generateInstance;
+import static com.aaronbedra.swsec.Types.Counter.counter;
 import static com.jnape.palatable.lambda.adt.Either.right;
 import static com.jnape.palatable.lambda.functions.builtin.fn3.FoldLeft.foldLeft;
 import static com.jnape.palatable.shoki.impl.StrictQueue.strictQueue;
@@ -28,7 +28,7 @@ public class TotpTest {
                 counter(new TimeStamp(2000000000L), timeStep30()),
                 counter(new TimeStamp(20000000000L), timeStep30()));
 
-        StrictQueue<Either<HmacFailure, TOTP>> expected = strictQueue(
+        StrictQueue<Either<Failure, TOTP>> expected = strictQueue(
                 right(new TOTP("287082")),
                 right(new TOTP("081804")),
                 right(new TOTP("050471")),
@@ -36,7 +36,7 @@ public class TotpTest {
                 right(new TOTP("279037")),
                 right(new TOTP("353130")));
 
-        StrictQueue<Either<HmacFailure, TOTP>> actual = foldLeft(
+        StrictQueue<Either<Failure, TOTP>> actual = foldLeft(
                 (acc, value) -> acc.snoc(generateInstance(otp6(), seed, value).unsafePerformIO()),
                 strictQueue(),
                 counters);

@@ -7,7 +7,9 @@ import java.security.SecureRandom;
 
 import static com.aaronbedra.swsec.OTP.otp6;
 import static com.aaronbedra.swsec.TimeStep.timeStep30;
-import static com.aaronbedra.swsec.Totp.*;
+import static com.aaronbedra.swsec.Totp.generateInstance;
+import static com.aaronbedra.swsec.Types.Counter.counter;
+import static com.aaronbedra.swsec.Types.Seed.generateSeed;
 import static com.aaronbedra.swsec.Types.TimeStamp.now;
 import static com.jnape.palatable.lambda.functions.builtin.fn2.Into.into;
 import static com.jnape.palatable.lambda.functions.builtin.fn2.Tupler2.tupler;
