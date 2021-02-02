@@ -31,10 +31,11 @@ public final class Totp {
     }
 
     private static TOTP buildTotp(TotpBinary totpBinary, OTP otp) {
-        StringBuilder code = new StringBuilder(Integer.toString(totpBinary.value() % otp.power().value()));
-        while (code.length() < otp.digits().value()) {
-            code.insert(0, "0");
-        }
-        return new TOTP(code.toString());
+        String code = Integer.toString(totpBinary.value() % otp.power().value());
+        int length = otp.digits().value() - code.length();
+
+        return length > 0
+                ? new TOTP("0".repeat(length) + code)
+                : new TOTP(code);
     }
 }
