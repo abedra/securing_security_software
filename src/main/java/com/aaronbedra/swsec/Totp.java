@@ -8,18 +8,15 @@ import com.aaronbedra.swsec.Types.TOTP;
 import com.jnape.palatable.lambda.adt.Either;
 import com.jnape.palatable.lambda.io.IO;
 
-import java.math.BigInteger;
-
 public final class Totp {
-    private static record TotpBinary(int value) {}
-    public static record HmacKey(byte[] value) {}
-    public static record HmacMessage(byte[] value) {}
+    private static record TotpBinary(int value) {
+    }
 
     private Totp() {
     }
 
     public static IO<Either<Failure, TOTP>> generateInstance(OTP otp, HMac hMac, Seed seed, Counter counter) {
-        return hMac.hash(hmacKey(seed), new HmacMessage(counter.value()))
+        return hMac.hash(seed, counter)
                 .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
                         .biMapR(hmacResult -> buildTotp(calculateTotp(hmacResult), otp)));
     }
@@ -39,14 +36,5 @@ public final class Totp {
             code.insert(0, "0");
         }
         return new TOTP(code.toString());
-    }
-
-    private static HmacKey hmacKey(Seed seed) {
-        byte[] bArray = new BigInteger("10" + seed.value(), 16).toByteArray();
-        byte[] ret = new byte[bArray.length - 1];
-        if (ret.length >= 0) {
-            System.arraycopy(bArray, 1, ret, 0, ret.length);
-        }
-        return new HmacKey(ret);
     }
 }

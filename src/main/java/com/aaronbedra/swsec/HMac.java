@@ -1,8 +1,8 @@
 package com.aaronbedra.swsec;
 
-import com.aaronbedra.swsec.Totp.HmacKey;
-import com.aaronbedra.swsec.Totp.HmacMessage;
+import com.aaronbedra.swsec.Types.Counter;
 import com.aaronbedra.swsec.Types.Failure;
+import com.aaronbedra.swsec.Types.Seed;
 import com.jnape.palatable.lambda.adt.Either;
 import com.jnape.palatable.lambda.adt.coproduct.CoProduct3;
 import com.jnape.palatable.lambda.functions.Fn1;
@@ -10,8 +10,9 @@ import com.jnape.palatable.lambda.io.IO;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.math.BigInteger;
 
-import static com.jnape.palatable.lambda.adt.Either.*;
+import static com.jnape.palatable.lambda.adt.Either.left;
 import static com.jnape.palatable.lambda.functions.builtin.fn1.Constantly.constantly;
 import static com.jnape.palatable.lambda.io.IO.io;
 
@@ -19,13 +20,27 @@ public abstract class HMac implements CoProduct3<HMac.HMacSHA1, HMac.HMacSHA256,
     public static record HmacResult(byte[] value) {
     }
 
+    public static record HmacKey(byte[] value) {
+    }
+
     public abstract IO<Mac> getInstance();
 
-    public IO<Either<Failure, HmacResult>> hash(HmacKey key, HmacMessage message) {
+    private HmacKey generateKey(Seed seed) {
+        byte[] bArray = new BigInteger("10" + seed.value(), 16).toByteArray();
+        byte[] ret = new byte[bArray.length - 1];
+        if (ret.length >= 0) {
+            System.arraycopy(bArray, 1, ret, 0, ret.length);
+        }
+        return new HmacKey(ret);
+    }
+
+    public IO<Either<Failure, HmacResult>> hash(Seed seed, Counter counter) {
+        HmacKey key = generateKey(seed);
+
         return getInstance()
                 .flatMap(hmac -> io(() -> new SecretKeySpec(key.value(), "RAW"))
                         .flatMap(secretKeySpec -> io(() -> hmac.init(secretKeySpec)))
-                        .flatMap(constantly(io(() -> Either.<Failure, HmacResult>right(new HmacResult(hmac.doFinal(message.value())))))))
+                        .flatMap(constantly(io(() -> Either.<Failure, HmacResult>right(new HmacResult(hmac.doFinal(counter.value())))))))
                 .catchError(throwable -> io(left(new Failure(throwable))));
     }
 
