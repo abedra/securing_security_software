@@ -6,6 +6,7 @@ import com.jnape.palatable.shoki.impl.StrictQueue;
 import com.jnape.palatable.shoki.impl.StrictStack;
 import org.junit.Test;
 
+import static com.aaronbedra.swsec.HMac.hMacSHA1;
 import static com.aaronbedra.swsec.OTP.otp6;
 import static com.aaronbedra.swsec.TimeStep.timeStep30;
 import static com.aaronbedra.swsec.Totp.generateInstance;
@@ -37,7 +38,7 @@ public class TotpTest {
                 right(new TOTP("353130")));
 
         StrictQueue<Either<Failure, TOTP>> actual = foldLeft(
-                (acc, value) -> acc.snoc(generateInstance(otp6(), seed, value).unsafePerformIO()),
+                (acc, value) -> acc.snoc(generateInstance(otp6(), hMacSHA1(), seed, value).unsafePerformIO()),
                 strictQueue(),
                 counters);
 

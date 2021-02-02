@@ -5,6 +5,7 @@ import com.jnape.palatable.lambda.io.IO;
 
 import java.security.SecureRandom;
 
+import static com.aaronbedra.swsec.HMac.hMacSHA1;
 import static com.aaronbedra.swsec.OTP.otp6;
 import static com.aaronbedra.swsec.TimeStep.timeStep30;
 import static com.aaronbedra.swsec.Totp.generateInstance;
@@ -20,7 +21,7 @@ public class Main {
         generateSeed(64)
                 .<IO<Seed>>runReaderT(new SecureRandom())
                 .zip(now().fmap(tupler()))
-                .flatMap(into((timeStamp, seed) -> generateInstance(otp6(), seed, counter(timeStamp, timeStep30()))))
+                .flatMap(into((timeStamp, seed) -> generateInstance(otp6(), hMacSHA1(), seed, counter(timeStamp, timeStep30()))))
                 .flatMap(failureOrTotp -> failureOrTotp.match(
                         hmacFailure -> io(() -> System.out.println(hmacFailure.value().getMessage())),
                         totp -> io(() -> System.out.println(totp))))
