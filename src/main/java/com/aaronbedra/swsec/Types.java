@@ -10,7 +10,6 @@ import static com.jnape.palatable.lambda.monad.transformer.builtin.ReaderT.reade
 import static org.apache.commons.codec.binary.Hex.encodeHexString;
 
 public final class Types {
-    public static record TOTP(String value) {}
     public static record Failure(Throwable value) {}
 
     public static record Seed(String value) {
