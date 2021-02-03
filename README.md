@@ -289,10 +289,111 @@ gets the logging out of the picture and lets us call that code in a more appropr
 have four separate operations that perform them. First is the call to `Mac.getInstance`, which we have made an
 implementation detail of each member of our CoProduct. The second is creating our instance of `SecretKeySpec`, the third
 calling `init`, and finally the invocation of `doFinal`. Depending on how you have
-configured [JCA](https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html) those effects
-can vary. This method also introduces the `Seed` and `Counter` record types which have not yet been defined. We are left
-with a resulting representation of HMac that covers our domain and prevents misuse and abuse of the input space.
-Additionally, this will allow us to remove some older and now duplicate code from the `Totp` class.
+configured [JCA](https://docs.oracle.com/en/java/javase/15/security/java-cryptography-architecture-jca-reference-guide.html#GUID-2BCFDD85-D533-4E6C-8CE9-29990DEB0190)
+those effects can vary. This method also introduces the `Seed` and `Counter` record types which have not yet been
+defined. We are left with a resulting representation of HMac that covers our domain and prevents misuse and abuse of the
+input space. Additionally, this will allow us to remove some older and now duplicate code from the `Totp` class.
+
+Since we've introduced the concept of `Seed` and `Counter`, let's define them, starting with `Seed`. Let's spend a
+little time identifying its implicit assumptions. This effort is a critical part of understanding how and why software
+can fail, and will allow us to model our solution more completely. This step is a very effective tool in the Software
+Security tool belt and goes a long way in producing solutions that operate correctly under uncertainty. Let's start with
+the `generateSeed` method.
+
+```java
+ public final class Totp {
+    public static Seed generateSeed() {
+        SecureRandom random = new SecureRandom();
+        byte[] randomBytes = new byte[SEED_LENGTH_IN_BYTES];
+        random.nextBytes(randomBytes);
+
+        return new Seed(encodeHexString(randomBytes));
+    }
+}
+```
+
+On the surface this method looks fairly straight forward. Its purpose is to produce a hex encoded string of random
+bytes. Unfortunately, it's filled with assumptions. Ultimately, we should be able to say
+
+> Given a number and a mechanism to furnish bytes, give me back a hex encoded string of the provided number of random bytes
+
+Sounds simple enough, right? Well, that's where the assumptions kick in. This method assumes that seed generation should
+control how byte furnishing is constructed, and the number of bytes that should be generated. This method also doesn't
+account for the fact that generating a random number using CSPRNG has a side effect. Since we're striking out on a
+number of levels, let's try a more explicit representation:
+
+```java
+public record Seed(String value){
+public static ReaderT<SecureRandom, IO<?>,Seed>generateSeed(int length){
+        return readerT(secureRandom->io(()->{
+        byte[]randomBytes=new byte[length];
+        secureRandom.nextBytes(randomBytes);
+        return new Seed(encodeHexString(randomBytes));
+        }));
+        }
+```
+
+There's a bit to unpack here, so let's go through it in more detail. The `generateSeed` method no longer directly
+returns a `Seed`, but rather a function that, when provided an instance of `SecureRandom`, will produce another function
+that, when run, will perform the side effect and produce a seed. This gets us closer to our statement above and
+correctly captures the details around how random bytes are produced. Notice that we have also moved our method into
+a `Seed` record type since it is effectively a static constructor, and, the only interface into `Seed` that we care
+about.
+
+Next, let's introduce `Counter`. Just like `Seed`, we will extract our code into a record. We will start with the
+original `counterToBytes`:
+
+```java
+public final class Totp {
+    private static byte[] counterToBytes(final long time) {
+        long counter = time / PERIOD;
+        byte[] buffer = new byte[Long.SIZE / Byte.SIZE];
+        for (int i = 7; i >= 0; i--) {
+            buffer[i] = (byte) (counter & 0xff);
+            counter = counter >> 8;
+        }
+        return buffer;
+    }
+}
+```
+
+Again, this method contains assumptions we would like to eliminate. The most egregious being the idea that `PERIOD` is a
+constant and cannot be changed without modifying the implementation. This was originally done to make the example a lean
+as possible, but in reality goes against expectations. The good news is, that we have already defined `TimeStep`, and
+that's exactly what we are going to use in its place. We end up with the following:
+
+```java
+public record Counter(byte[]value){
+public static Counter counter(TimeStamp timeStamp,TimeStep timeStep){
+        long counter=timeStamp.value()/timeStep.value();
+        byte[]buffer=new byte[Long.SIZE/Byte.SIZE];
+        for(int i=7;i>=0;i--){
+        buffer[i]=(byte)(counter&0xff);
+        counter=counter>>8;
+        }
+        return new Counter(buffer);
+        }
+        }
+```
+
+The implementation hasn't changed much. We made the time step an explicit requirement, and introduce a tiny type for the
+current time, `TimeStamp`. Other than returning an instance of `Counter` the calculation of the `Counter` is the same.
+
+While we're here, let's follow up with our definition of `TimeStamp`. You might guess it's just an empty record
+definition that holds a `long`, and you would be correct. Because we will at some point need to get the current time
+from the system to do our calculation, we will have one more side effect. To capture this, we will add a static
+constructor `now` to our record to complete it:
+
+```java
+public record TimeStamp(long value){
+public static IO<TimeStamp> now(){
+        return io(()->new TimeStamp(System.currentTimeMillis()/1000));
+        }
+        }
+```
+
+Here we remove the underlying assumption around what really happens when we reach for the system clock. This also lets
+us compose getting the current time with any other `IO` operations. This will come in handy in a bit.
 
 ## Replacing Native Language Types
 
@@ -342,59 +443,6 @@ our library that uses domain concepts to express input and output details. Updat
 for brevity, and because this class will change significantly before our end state.
 
 ## Removing Assumptions
-
-Before we get to the essential complexity behind our implementation, let's spend a little time identifying its implicit
-assumptions. This effort is a critical part of understanding how and why software can fail, and will allow us to model
-our solution more completely. This step is a very effective tool in the Software Security tool belt and goes a long way
-in producing solutions that operate correctly under uncertainty. Let's start with the `generateSeed` method.
-
-```java
- public final class Totp {
-    // ...
-    public static Seed generateSeed() {
-        SecureRandom random = new SecureRandom();
-        byte[] randomBytes = new byte[SEED_LENGTH_IN_BYTES];
-        random.nextBytes(randomBytes);
-
-        return new Seed(encodeHexString(randomBytes));
-    }
-}
-```
-
-On the surface this method looks fairly straight forward. Its purpose is to produce a hex encoded string of random
-bytes. Unfortunately, it's filled with assumptions. Ultimately, we should be able to say
-
-> Given a number and a mechanism to furnish bytes, give me back a hex encoded string of the provided number of random bytes
-
-Sounds simple enough, right? Well, that's where the assumptions kick in. This method assumes that seed generation should
-control how byte furnishing is constructed, and the number of bytes that should be generated. This method also doesn't
-account for the fact that generating a random number using CSPRNG has a side effect. Since we're striking out on a
-number of levels, let's try a more explicit representation:
-
-```java
-public final class Totp {
-    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
-        return readerT(secureRandom -> io(() -> {
-            byte[] randomBytes = new byte[length];
-            secureRandom.nextBytes(randomBytes);
-            return new Seed(encodeHexString(randomBytes));
-        }));
-    }
-
-    public static void main(String[] args) {
-        ReaderT<SecureRandom, IO<?>, Seed> secureRandomIOSeedReaderT = generateSeed(64);
-        IO<Seed> seedIO = secureRandomIOSeedReaderT.runReaderT(new SecureRandom());
-        Seed seed = seedIO.unsafePerformIO();
-        System.out.println(seed);
-    }
-}
-```
-
-There's a bit to unpack here, so let's go through it in more detail. The `generateSeed` method no longer directly
-returns a `Seed`, but rather a function that, when run with an instance of `SecureRandom`, will produce another function
-that, when run, will perform the side effect and produce a seed. This gets us closer to our statement above and
-correctly captures the details around how random bytes are produced. The `main` above is broken down into each piece for
-clarity, but can be rewritten as:
 
 ```java
 public final class Totp {
