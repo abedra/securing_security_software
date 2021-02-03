@@ -16,6 +16,9 @@ the code in this implementation and give it a proper overhaul. I recommend readi
 clarity on where we're starting from, but a good understanding of [RFC 6238](https://tools.ietf.org/html/rfc6238) is
 enough to get the point.
 
+You can find the complete example for this post
+at [https://github.com/abedra/securing_security_software](https://github.com/abedra/securing_security_software)
+
 ## Getting Familiar With Dependencies
 
 The very first thing to do is check up on our dependencies to make sure there aren't any issues. To do this we will
@@ -93,11 +96,11 @@ dependency, and we are a method call replacement away from compiling properly ag
 
 ## Adding Tests
 
-Time for a pretty major mea culpa on my part. This code completely omitted tests and there's no excuse for that. For
-something as important as this it's especially offensive to not have some kind of verification that the algorithm was
-implemented correctly. Why are we discussing tests in a post about Software Security? Writing tests are 100% a part of
-Software Security, full stop. Let's revisit
-the [definition](https://www.techopedia.com/definition/24866/software-security) of Software Security
+Time for a mea culpa on my part. This code completely omitted tests and there's no excuse for that. For something as
+important as this it's especially offensive to not have some kind of verification that the algorithm was implemented
+correctly. Why are we discussing tests in a post about Software Security? Writing tests are 100% a part of Software
+Security, full stop. Let's revisit the [definition](https://www.techopedia.com/definition/24866/software-security) of
+Software Security
 
 > Software security is an idea implemented to protect software against malicious attack and other hacker risks so that the software continues to function correctly under such potential risks. Security is necessary to provide integrity, authentication and availability.
 
@@ -142,6 +145,75 @@ this method should be generally considered part of the interface offered to supp
 ```
 
 The end-to-end test should now pass, and we have a viable baseline to use as we proceed.
+
+## Finding the Essential Algebra
+
+Part of applying software security is arriving at a model that allows the full expression of the domain, including
+invariants, and nothing more. This is much more difficult than it sounds. It takes thought, several rounds of
+refactoring, and good old fashioned discipline. Before we crack into our code it is important to expose a better model
+that we can refactor into. Thankfully, this problem lends itself well to very concrete algebra that can be expressed
+cleanly and will leave users of this code with an interface that demands domain correct inputs and will fail to compile
+otherwise. This creates a rock solid foundation for our refactoring, and will serve as a useful mental exercise ahead of
+digging into the previous code.
+
+In [RFC 6238](https://tools.ietf.org/html/rfc6238), there are three concepts that represent essential components of TOTP
+and are completely deterministic:
+
+* Time Step - The number of seconds in the TOTP period. 30 seconds is the default, but 60 and 90 are also acceptable
+* OTP Length - The number of digits in the final TOTP result. Can be 1 to 8. Also associates an exponent applied to the
+  calculation
+* HMac Algorithm - The version of the HMac algorithm used in the calculation. Can be SHA1, SHA256, or SHA512
+
+Before we continue, we are going to add another library to assist us:
+
+```xml
+
+<dependencies>
+    <dependency>
+        <groupId>com.jnape.palatable</groupId>
+        <artifactId>lambda</artifactId>
+        <version>5.3.0</version>
+    </dependency>
+    <dependency>
+        <groupId>com.jnape.palatable</groupId>
+        <artifactId>lambda</artifactId>
+        <version>5.3.0</version>
+        <type>test-jar</type>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+```
+
+The [lambda](https://github.com/palatable/lambda) library provides a rich set of type-safe, functional patterns that
+will allow us to remove assumptions, express our essential algorithm, and move toward a formally verifiable expression
+of our solution. While I don't consider this type of work required for software security, I do consider it a highly
+recommended practice. Security Software is difficult enough to get right, and everything we can do to make it as correct
+and verifiable should be considered.
+
+It's important to remember that the idea of type-safe, functional programming is a tool used to achieve an outcome. This
+is not at all the only way to approach software security so please don't mix the introduction of this idea with the
+ability to practice software security. In this particular case, I believe it is a useful tool for demonstrating a point
+and find the result incredibly easy to reason about.
+
+Let's start with the time step concept. It allows three options, `30`, `60`, and `90` seconds. This is a great place to
+introduce a [CoProduct](https://en.wikipedia.org/wiki/Coproduct). This concept is not built into Java, so we will use
+the [lambda supplied implementation](https://github.com/palatable/lambda#coproducts) to give us a hand. Unfortunately,
+the end result is very verbose. It is this way partly because of the Java language, and partly because there are some
+added ergonomics and performance additions that make things better for consumers. In a language with readily available
+CoProducts, this might look something like:
+
+```haskell
+data TimeStep = TimeStep30 | TimeStep60 | TimeStep90 deriving (Show)
+```
+
+The resulting Java code is long enough that I prefer linking instead of a direct copy and paste. The result and be
+found [here](https://github.com/abedra/securing_security_software/blob/master/src/main/java/com/aaronbedra/swsec/TimeStep.java)
+. While there's a lot of ceremony under the hood, the real interface is provided by the `timeStep30()`, `timeStep60()`,
+and `timeStep90()` methods. Notice that each of the `TimeStep` inner classes carries a value, which ensures that the
+respective class can only contain the correct number of seconds. Ultimately, requiring the `TimeStep` type in the
+implementation of our algorithm ensures at the type level that this concept in our algorithm will be correct. Any
+substitution will be considered a type error and your program will fail to compile. This ensures the time step cannot be
+abused or misused in our implementation.
 
 ## Replacing Native Language Types
 
@@ -189,34 +261,6 @@ Consumers are minimally impacted but now have a much richer set of information t
 error by the compiler to pass a `String` to `generateInstance`. We are starting to enforce requirements on the use of
 our library that uses domain concepts to express input and output details. Updates to the `Totp` class are skipped here
 for brevity, and because this class will change significantly before our end state.
-
-## Introducing lambda
-
-Before we continue, we are going to add another library to assist us:
-
-```xml
-
-<dependencies>
-    <dependency>
-        <groupId>com.jnape.palatable</groupId>
-        <artifactId>lambda</artifactId>
-        <version>5.3.0</version>
-    </dependency>
-    <dependency>
-        <groupId>com.jnape.palatable</groupId>
-        <artifactId>lambda</artifactId>
-        <version>5.3.0</version>
-        <type>test-jar</type>
-        <scope>test</scope>
-    </dependency>
-</dependencies>
-```
-
-The [lambda](https://github.com/palatable/lambda) library provides a rich set of type-safe, functional patterns that
-will allow us to remove assumptions, express our essential algorithm, and move toward a formally verifiable expression
-of our solution. While I don't consider this type of work required for software security, I do consider it a highly
-recommended practice. Security Software is difficult enough to get right, and everything we can do to make it as correct
-and verifiable should be considered.
 
 ## Removing Assumptions
 
