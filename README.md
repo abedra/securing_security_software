@@ -215,6 +215,85 @@ implementation of our algorithm ensures at the type level that this concept in o
 substitution will be considered a type error and your program will fail to compile. This ensures the time step cannot be
 abused or misused in our implementation.
 
+Next, let's take a look at OTP length. This controls the resulting length of the TOTP code, and should carry with it the
+appropriate exponent to use during the TOTP calculation. Again, we can reach for a CoProduct, but this time it's a bit
+longer given our options are one to eight. You can find the full
+implementation [here](https://github.com/abedra/securing_security_software/blob/master/src/main/java/com/aaronbedra/swsec/OTP.java)
+. Like the time step implementation, there's an ergonomic interface on top of the required ceremony. Each instance
+of `OTP` has a resulting `Digits` and `Power` that are used to represent the length and exponent, ensuring these values
+cannot be used incorrectly.
+
+The HMac type was intentionally saved for last, because it will carry some additional implementation. Along with the
+ability to correctly specify the HMac algorithm, we also want this type to be able to furnish an HMac result. Given a
+TOTP Seed, a desired HMac algorithm, and a Counter, we should be able to furnish the result of the HMac operation with
+full assurance that the correct usage was respected and cannot be abused or misused. The full implementation can be
+found [here](https://github.com/abedra/securing_security_software/blob/master/src/main/java/com/aaronbedra/swsec/HMac.java)
+. Like the other types we will start again with a CoProduct, differentiating on the HMac algorithm. Along with the
+ergonomics offered by the other types you will notice a few things that are worth digging into. The `hexToBytes` method
+has been pulled into this class and renamed to `generateKey`. Ultimately this method provides our arrow from our TOTP
+Seed to the resulting HMac key used in the operation. You will also notice it replaces the Java native return type
+of `byte[]` with the `HmacKey` record type. I find the expression of tiny, or marker, types to be a very useful exercise
+when writing code. It helps keep track mentally of all the inputs and outputs, and provides a simple layer of compile
+time protection against supplying the wrong input to the wrong place. This pattern will continue throughout the
+refactoring. The most substantial difference is the implementation of `hash`. This is the same `hash` method from the
+initial implementation refactored to adequately express the underlying complexity. This one is worth a before and after
+so let's take a look.
+
+```java
+public final class Totp {
+    private static byte[] hash(final byte[] key, final byte[] message) {
+        try {
+            Mac hmac = Mac.getInstance("HmacSHA1");
+            SecretKeySpec keySpec = new SecretKeySpec(key, "RAW");
+            hmac.init(keySpec);
+            return hmac.doFinal(message);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            log.error(e.getMessage(), e);
+            return null;
+        }
+    }
+}
+```
+
+My oh my, where do we begin. On the plus side, if you don't look back at code you wrote previously with severe disdain,
+it's a sign you haven't grown. At least I've got that going for me. Let's itemize the things that need to change here:
+
+* Explicit types for each input and output
+* Logging has absolutely no place here and needs to be removed
+* Returning `null` carries no information about the failure and forces the consumer to handle it
+* We need a better way to propagate the failure without throwing an exception
+* JCA operations perform side effects
+* There's no ability to ask for alternate HMac algorithms
+
+To do this we will want a method that returns an `IO` wrapping some concept of success and failure. We can use
+an `Either` for this. A bit of refactoring and we can produce the following:
+
+```java
+public abstract class HMac implements CoProduct3<HMac.HMacSHA1, HMac.HMacSHA256, HMac.HMacSHA512, HMac> {
+    public IO<Either<Failure, HmacResult>> hash(Seed seed, Counter counter) {
+        HmacKey key = generateKey(seed);
+
+        return getInstance()
+                .flatMap(hmac -> io(() -> new SecretKeySpec(key.value(), "RAW"))
+                        .flatMap(secretKeySpec -> io(() -> hmac.init(secretKeySpec)))
+                        .flatMap(constantly(io(() -> Either.<Failure, HmacResult>right(new HmacResult(hmac.doFinal(counter.value())))))))
+                .catchError(throwable -> io(left(new Failure(throwable))));
+    }
+}
+```
+
+Here we capture the side effects, but consider any exception thrown inside calculating the HMac value a failure. There
+are two new record types, `Failure` and `HmacResult` respectively. This allows the consumer to exhaustively handle the
+outcome of calling this method, and use the success or failure information in total in whatever way is appropriate. This
+gets the logging out of the picture and lets us call that code in a more appropriate place. In terms of side effects, we
+have four separate operations that perform them. First is the call to `Mac.getInstance`, which we have made an
+implementation detail of each member of our CoProduct. The second is creating our instance of `SecretKeySpec`, the third
+calling `init`, and finally the invocation of `doFinal`. Depending on how you have
+configured [JCA](https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html) those effects
+can vary. This method also introduces the `Seed` and `Counter` record types which have not yet been defined. We are left
+with a resulting representation of HMac that covers our domain and prevents misuse and abuse of the input space.
+Additionally, this will allow us to remove some older and now duplicate code from the `Totp` class.
+
 ## Replacing Native Language Types
 
 Before we into the heavy lifting, I find it useful to completely break away from native language types. This practice
@@ -476,54 +555,6 @@ do a little more refactoring, so let's leave the unnecessary `IO` here for now a
 Let's move further into our `generateInstance` method where we quickly run across an invocation of the `hash` method.
 While it's not immediately obvious if the `hash` method isn't on screen, this is the first part of the algorithm that
 introduces failure. Let's take a look at the implementation of `hash`:
-
-```java
-public final class Totp {
-    private static byte[] hash(final byte[] key, final byte[] message) {
-        try {
-            Mac hmac = Mac.getInstance("HmacSHA1");
-            SecretKeySpec keySpec = new SecretKeySpec(key, "RAW");
-            hmac.init(keySpec);
-            return hmac.doFinal(message);
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            log.error(e.getMessage(), e);
-            return null;
-        }
-    }
-}
-```
-
-My oh my, where do we begin. On the plus side, if you don't look back at code you wrote previously with severe disdain,
-it's a sign you haven't grown. At least I've got that going for me. Let's itemize the things that need to change here:
-
-* Explicit types for each input and output
-* Logging has absolutely no place here and needs to be removed
-* Returning `null` carries no information about the failure and forces the consumer to handle it
-* We need a better way to propagate the failure without throwing an exception
-* JCA operations perform side effects
-
-To do this we will want a method that returns an `IO` wrapping some concept of success and failure. We can use
-an `Either` for this. A bit of refactoring and we can produce the following:
-
-```java
-public final class Totp {
-    private static IO<Either<HmacFailure, HmacResult>> hash(HmacKey key, HmacMessage message) {
-        return io(() -> trying(() -> {
-            Mac hmac = Mac.getInstance("HmacSHA1");
-            SecretKeySpec keySpec = new SecretKeySpec(key.value(), "RAW");
-            hmac.init(keySpec);
-            return new HmacResult(hmac.doFinal(message.value()));
-        }, HmacFailure::new));
-    }
-}
-```
-
-Here we capture the side effect, but consider any exception thrown inside calculating the HMac value a failure. There
-are two new records, `HmacFailure` and `HmacResult` respectively. This allows the consumer to exhaustively handle the
-outcome of calling this method, and use the success or failure information in total in whatever way is appropriate. This
-gets the logging out of the picture and lets us call that code in a more appropriate place. This is going to pretty
-dramatically change the call site and our `generateInstance` method in general. Before we refactor this method lets
-introduce two additional pure methods for calculating our `TOTP` result:
 
 ```java
 public final class Totp {
