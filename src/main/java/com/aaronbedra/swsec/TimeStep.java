@@ -18,8 +18,8 @@ public abstract class TimeStep implements CoProduct3<TimeStep.TimeStep30, TimeSt
         return TimeStep90.INSTANCE;
     }
 
-    public static class TimeStep30 extends TimeStep {
-        public static TimeStep30 INSTANCE = new TimeStep30();
+    public static final class TimeStep30 extends TimeStep {
+        public static final TimeStep30 INSTANCE = new TimeStep30();
 
         private TimeStep30() {
         }
@@ -37,8 +37,8 @@ public abstract class TimeStep implements CoProduct3<TimeStep.TimeStep30, TimeSt
         }
     }
 
-    public static class TimeStep60 extends TimeStep {
-        public static TimeStep60 INSTANCE = new TimeStep60();
+    public static final class TimeStep60 extends TimeStep {
+        public static final TimeStep60 INSTANCE = new TimeStep60();
 
         private TimeStep60() {
         }
@@ -56,8 +56,8 @@ public abstract class TimeStep implements CoProduct3<TimeStep.TimeStep30, TimeSt
         }
     }
 
-    public static class TimeStep90 extends TimeStep {
-        public static TimeStep90 INSTANCE = new TimeStep90();
+    public static final class TimeStep90 extends TimeStep {
+        public static final TimeStep90 INSTANCE = new TimeStep90();
 
         private TimeStep90() {
         }
