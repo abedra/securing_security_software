@@ -1,8 +1,5 @@
 package com.aaronbedra.swsec;
 
-import com.aaronbedra.swsec.Types.Counter;
-import com.aaronbedra.swsec.Types.Failure;
-import com.aaronbedra.swsec.Types.Seed;
 import com.jnape.palatable.lambda.adt.Either;
 import com.jnape.palatable.lambda.adt.coproduct.CoProduct3;
 import com.jnape.palatable.lambda.functions.Fn1;

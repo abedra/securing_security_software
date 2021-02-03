@@ -1,6 +1,5 @@
 package com.aaronbedra.swsec;
 
-import com.aaronbedra.swsec.Types.Seed;
 import com.jnape.palatable.lambda.io.IO;
 
 import java.security.SecureRandom;
@@ -9,9 +8,9 @@ import static com.aaronbedra.swsec.HMac.hMacSHA1;
 import static com.aaronbedra.swsec.OTP.otp6;
 import static com.aaronbedra.swsec.TimeStep.timeStep30;
 import static com.aaronbedra.swsec.Totp.generateInstance;
-import static com.aaronbedra.swsec.Types.Counter.counter;
-import static com.aaronbedra.swsec.Types.Seed.generateSeed;
-import static com.aaronbedra.swsec.Types.TimeStamp.now;
+import static com.aaronbedra.swsec.Counter.counter;
+import static com.aaronbedra.swsec.Seed.generateSeed;
+import static com.aaronbedra.swsec.TimeStamp.now;
 import static com.jnape.palatable.lambda.functions.builtin.fn2.Into.into;
 import static com.jnape.palatable.lambda.functions.builtin.fn2.Tupler2.tupler;
 import static com.jnape.palatable.lambda.io.IO.io;
