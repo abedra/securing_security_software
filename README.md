@@ -2,14 +2,24 @@
 
 ## Introduction
 
-TODO: Write
+When it comes to software security, the devil is in the details. When it comes to security software, those details are
+even more important. Arguably, security software is one of the easier places to justify spending more time on software
+security. To separate the ideas I'm going to steal a quote from [Gary McGraw](https://twitter.com/cigitalgem)
+
+<blockquote class="twitter-tweet"><p lang="en" dir="ltr">Software security is about integrating security practices into the way you build software, not integrating security features into your code</p>&mdash; Gary McGraw (@cigitalgem) <a href="https://twitter.com/cigitalgem/status/641345011926237185?ref_src=twsrc%5Etfw">September 8, 2015</a></blockquote> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+
+In light of that, let's do some software security in our security software. For this post, we will focus specifically on
+the [Totp](https://github.com/Jemurai/how_it_works/blob/master/totp/src/main/java/com/jemurai/howitworks/totp/Totp.java)
+class from a [blog post](https://jemurai.com/2018/10/11/how-it-works-totp-based-mfa/) I wrote a few years back while
+working at [Jemurai](https://jemurai.com/). [Matt Konda](https://twitter.com/mkonda) was kind enough to let me revisit the
+code in this implementation and give it a proper overhaul. I recommend reading the original post for context and clarity
+on where we're starting from, but a good understanding of [RFC 6238](https://tools.ietf.org/html/rfc6238) is enough to
+get the point.
 
 ## Getting Familiar With Dependencies
 
-For this post, we will focus specifically on
-the [Totp](https://github.com/Jemurai/how_it_works/blob/master/totp/src/main/java/com/jemurai/howitworks/totp/Totp.java)
-class from the original post. The very first thing to do is check up on our dependencies to make sure there aren't any
-issues. To do this we will add [OWASP Dependency Check](https://owasp.org/www-project-dependency-check/) to our project:
+The very first thing to do is check up on our dependencies to make sure there aren't any issues. To do this we will
+add [OWASP Dependency Check](https://owasp.org/www-project-dependency-check/) to our project:
 
 ```xml
 
@@ -563,8 +573,8 @@ public final class Totp {
 
 If you are looking at this code in an IDE, it should have already pointed out that `log` and `SEED_LENGTH_IN_BYTES` are
 both no longer used. We can safely delete those immediately, and we should aim to delete the rest as well. The things
-these parameters represent, except logging, are all part of the OTP process, but this class has no
-business dictating exactly what they should be.
+these parameters represent, except logging, are all part of the OTP process, but this class has no business dictating
+exactly what they should be.
 
 ## Revisiting our Tests
 
