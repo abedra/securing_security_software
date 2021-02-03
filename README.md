@@ -11,10 +11,10 @@ security. To separate the ideas I'm going to steal a quote from [Gary McGraw](ht
 In light of that, let's do some software security in our security software. For this post, we will focus specifically on
 the [Totp](https://github.com/Jemurai/how_it_works/blob/master/totp/src/main/java/com/jemurai/howitworks/totp/Totp.java)
 class from a [blog post](https://jemurai.com/2018/10/11/how-it-works-totp-based-mfa/) I wrote a few years back while
-working at [Jemurai](https://jemurai.com/). [Matt Konda](https://twitter.com/mkonda) was kind enough to let me revisit the
-code in this implementation and give it a proper overhaul. I recommend reading the original post for context and clarity
-on where we're starting from, but a good understanding of [RFC 6238](https://tools.ietf.org/html/rfc6238) is enough to
-get the point.
+working at [Jemurai](https://jemurai.com/). [Matt Konda](https://twitter.com/mkonda) was kind enough to let me revisit
+the code in this implementation and give it a proper overhaul. I recommend reading the original post for context and
+clarity on where we're starting from, but a good understanding of [RFC 6238](https://tools.ietf.org/html/rfc6238) is
+enough to get the point.
 
 ## Getting Familiar With Dependencies
 
@@ -583,3 +583,8 @@ TODO: Write
 ## Wrap-Up
 
 TODO: Write
+
+If you're looking to learn more about software security, I highly recommend checking
+out [Secure Code Warrior](https://www.securecodewarrior.com/). They have an excellent training platform, and
+their [Sensei](https://www.securecodewarrior.com/sensei) IDE plugin is great at helping you and your team apply more
+secure software development habits in real time.
