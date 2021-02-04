@@ -1,5 +1,14 @@
 # Applying Software Security to Security Software
 
+# TODO
+
+* Add references to OWASP ASVS where appropriate
+* Add references to BSIMM where appropriate
+* Add failing tests
+* Explain the cost and trade offs on formal verification
+* Add some additional content around dependency management (other tools, links, cost of staying up to date, etc.)
+* Add links so some recent software security issues to back up these claims (sudo vuln, etc.)
+
 ## Introduction
 
 When it comes to software security, the devil is in the details. When it comes to security software, those details are
