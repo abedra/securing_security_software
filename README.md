@@ -323,22 +323,27 @@ account for the fact that generating a random number using CSPRNG has a side eff
 number of levels, let's try a more explicit representation:
 
 ```java
-public record Seed(String value){
-public static ReaderT<SecureRandom, IO<?>,Seed>generateSeed(int length){
-        return readerT(secureRandom->io(()->{
-        byte[]randomBytes=new byte[length];
-        secureRandom.nextBytes(randomBytes);
-        return new Seed(encodeHexString(randomBytes));
+public class Seed(String value) {
+    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
+        return readerT(secureRandom -> io(() -> {
+            byte[] randomBytes = new byte[length];
+            secureRandom.nextBytes(randomBytes);
+            return new Seed(encodeHexString(randomBytes));
         }));
-        }
+    }
+}
 ```
 
-There's a bit to unpack here, so let's go through it in more detail. The `generateSeed` method no longer directly
-returns a `Seed`, but rather a function that, when provided an instance of `SecureRandom`, will produce another function
-that, when run, will perform the side effect and produce a seed. This gets us closer to our statement above and
-correctly captures the details around how random bytes are produced. Notice that we have also moved our method into
-a `Seed` record type since it is effectively a static constructor, and, the only interface into `Seed` that we care
-about.
+It is important to note that we have now taken the first step toward parameterizing both the mechanism that produces
+bytes, and the effect that byte production runs under. This is thanks to `ReaderT`. This post is already long enough
+that a detailed explanation of `ReaderT` is not in the cards. There is, however, a
+good [blog post](https://www.fpcomplete.com/blog/2017/06/readert-design-pattern/) on the pattern that should help build
+a foundation. The syntax is a bit different in Java, but the idea is the same. There's a bit to unpack here, so let's go
+through it in more detail. The `generateSeed` method no longer directly returns a `Seed`, but rather a function that,
+when provided an instance of `SecureRandom`, will produce another function that, when run, will perform the side effect
+and produce a seed. This gets us closer to our statement above and correctly captures the details around how random
+bytes are produced. Notice that we have also moved our method into a `Seed` record type since it is effectively a static
+constructor, and, the only interface into `Seed` that we care about.
 
 Next, let's introduce `Counter`. Just like `Seed`, we will extract our code into a record. We will start with the
 original `counterToBytes`:
@@ -363,17 +368,17 @@ as possible, but in reality goes against expectations. The good news is, that we
 that's exactly what we are going to use in its place. We end up with the following:
 
 ```java
-public record Counter(byte[]value){
-public static Counter counter(TimeStamp timeStamp,TimeStep timeStep){
-        long counter=timeStamp.value()/timeStep.value();
-        byte[]buffer=new byte[Long.SIZE/Byte.SIZE];
-        for(int i=7;i>=0;i--){
-        buffer[i]=(byte)(counter&0xff);
-        counter=counter>>8;
+public class Counter(byte[] value) {
+    public static Counter counter(TimeStamp timeStamp, TimeStep timeStep) {
+        long counter = timeStamp.value() / timeStep.value();
+        byte[] buffer = new byte[Long.SIZE / Byte.SIZE];
+        for (int i = 7; i >= 0; i--) {
+            buffer[i] = (byte) (counter & 0xff);
+            counter = counter >> 8;
         }
         return new Counter(buffer);
-        }
-        }
+    }
+}
 ```
 
 The implementation hasn't changed much. We made the time step an explicit requirement, and introduce a tiny type for the
@@ -385,169 +390,72 @@ from the system to do our calculation, we will have one more side effect. To cap
 constructor `now` to our record to complete it:
 
 ```java
-public record TimeStamp(long value){
-public static IO<TimeStamp> now(){
-        return io(()->new TimeStamp(System.currentTimeMillis()/1000));
-        }
-        }
+public class TimeStamp(long value) {
+    public static IO<TimeStamp> now() {
+        return io(() -> new TimeStamp(System.currentTimeMillis() / 1000));
+    }
+}
 ```
 
 Here we remove the underlying assumption around what really happens when we reach for the system clock. This also lets
 us compose getting the current time with any other `IO` operations. This will come in handy in a bit.
 
-## Replacing Native Language Types
-
-Before we into the heavy lifting, I find it useful to completely break away from native language types. This practice
-can be polarizing, but I find it essential to the proper expression of the domain. This expression will become more
-obvious as we start our refactoring and introduce more complex types. This is where having Java's `Record` support comes
-in handy. This practice is borrowed from
-Haskell's [newtype](https://kowainik.github.io/posts/haskell-mini-patterns#newtype) pattern. While this example will
-mostly wrap language types in value types, this concept can and should be taken much further to model domain invariants.
-Alexis King does a [fantastic job](https://lexi-lambda.github.io/blog/2020/11/01/names-are-not-type-safety/) taking
-this [further](https://lexi-lambda.github.io/blog/2020/08/13/types-as-axioms-or-playing-god-with-static-types/).
-
-Let's start by defining types for our `Totp` class. Because the record syntax allows us to define value types in a very
-small space we can add them all to the same file. Let's start with the two essential output types of the `Totp` class.
+At this point we can now set our sights on the `Totp` class. We have all the foundation we need to do a successful
+refactoring. We can start by deleting the majority of this class, which is always satisfying. This includes all of
+the `static final` variables created at the top of the class, the `generateSeed()` method, `hexToBytes()`
+, `counterToBytes()`, and `hash`. Let's also turn our `Totp` class into a record holding a `String` value. All we really
+have left to set our sights on is `generateInstance()`. There's a lot going on here, arguably more than there needs to
+be. Let's start by splitting some of this up:
 
 ```java
-public final class Types {
-    public static record Seed(String value) {
+public class Totp {
+    private static int calculate(HmacResult hmacResult) {
+        byte[] result = hmacResult.value();
+        int offset = result[result.length - 1] & 0xf;
+        return ((result[offset] & 0x7f) << 24) |
+                ((result[offset + 1] & 0xff) << 16) |
+                ((result[offset + 2] & 0xff) << 8) |
+                ((result[offset + 3] & 0xff));
     }
 
-    public static record TOTP(String value) {
-    }
-}
-```
+    private static Totp totp(int totpBinary, OTP otp) {
+        String code = Integer.toString(totpBinary % otp.power().value());
+        int length = otp.digits().value() - code.length();
 
-We will add to this as we go, but these are the two types used by consumers of our library. Both of these have moved
-from `String` to a value type holding a string. While that might seem trivial, think of what each represents. The
-underlying value of a `Seed` is a much more sensitive value than `TOTP` and should be treated with more care. Going
-forward we now have an easy way to understand that a `Seed` is a `Seed` and can apply the appropriate restrictions.
-Let's take a look at our `Main` class to see how the program changes:
-
-```diff
-public class Main {
-    public static void main(String[] args) {
--        String seed = Totp.generateSeed();
-+        Seed seed = Totp.generateSeed();
--        String totp = generateInstance(seed);
-+        TOTP totp = generateInstance(seed);
-        System.out.println(totp);
+        return length > 0
+                ? new Totp("0".repeat(length) + code)
+                : new Totp(code);
     }
 }
 ```
 
-Consumers are minimally impacted but now have a much richer set of information to work with. It is now considered an
-error by the compiler to pass a `String` to `generateInstance`. We are starting to enforce requirements on the use of
-our library that uses domain concepts to express input and output details. Updates to the `Totp` class are skipped here
-for brevity, and because this class will change significantly before our end state.
-
-## Removing Assumptions
+This separates out the calculation of the TOTP binary value as well as the construction of the final number. It also
+ditches the `while` loop that was padding the the value based on the `OTP` power. What's left, you might ask. Well, not
+much. The only thing left is to coordinate it all. That we can save for our `generateInstance()` method:
 
 ```java
-public final class Totp {
-    public static void main(String[] args) {
-        Seed seed = generateSeed(64)
-                .<IO<Seed>>runReaderT(new SecureRandom())
-                .unsafePerformIO();
-        System.out.println(seed);
+public class Totp(String value) {
+    public static IO<Either<Failure, Totp>> generateInstance(OTP otp, HMac hMac, Seed seed, Counter counter) {
+        return hMac.hash(seed, counter)
+                .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
+                        .biMapR(hmacResult -> totp(calculate(hmacResult), otp)));
     }
 }
 ```
 
-It is important to note that we have now taken the first step toward parameterizing both the mechanism that produces
-bytes, and the effect that byte production runs under. This is thanks to `ReaderT`. This post is already long enough
-that a detailed explanation of `ReaderT` is not in the cards. There is, however, a
-good [blog post](https://www.fpcomplete.com/blog/2017/06/readert-design-pattern/) on the pattern that should help build
-a foundation. The syntax is a bit different in Java, but the idea is the same.
-
-We will take parameterization a bit further on this later, but for now there's more work to do around correctly
-capturing the assumptions of our algorithm. Let's set our sights on `generateInstance`. To better understand what's
-going on here lets delete the convenience methods and focus explicitly on the real implementation:
-
-```java
-public final class Totp {
-    public static TOTP generateInstance(Seed seed, final byte[] counter) {
-        // ...
-    }
-
-    public static void main(String[] args) {
-        TOTP totp = generateInstance(seed, counterToBytes(System.currentTimeMillis() / 1000));
-    }
-}
-```
-
-We can express this as:
-
-> Given a seed and a counter, give me back a one time password
-
-You may have already identified the call to `System.currentTimeMillis` though and recognized the side effect. To capture
-this we should alter our expression to:
-
-> Given a seed and mechanism to furnish a counter, give me back a one time password
-
-This we can accomplish fairly easily. If we isolate the side effect we can in turn have `generateInstance` return a side
-effect:
-
-```java
-public final class Totp {
-    public static IO<TOTP> generateInstance(Seed seed, IO<Counter> mkCounter) {
-        return mkCounter.flatMap(counter -> io(() -> {
-            byte[] key = hexToBytes(seed.value());
-            byte[] result = hash(key, counter.value());
-
-            if (result == null) {
-                throw new RuntimeException("Could not produce OTP value");
-            }
-
-            int offset = result[result.length - 1] & 0xf;
-            int binary = ((result[offset] & 0x7f) << 24) |
-                    ((result[offset + 1] & 0xff) << 16) |
-                    ((result[offset + 2] & 0xff) << 8) |
-                    ((result[offset + 3] & 0xff));
-
-            StringBuilder code = new StringBuilder(Integer.toString(binary % POWER));
-
-            while (code.length() < DIGITS) {
-                code.insert(0, "0");
-            }
-
-            return new TOTP(code.toString());
-        }));
-    }
-}
-```
-
-Now our TOTP instance generation assumes a side effect. Our battle with this method is far from over, but at least it's
-no longer lying about what it does. Well, it's at least not lying about the side effect. We will take care of that
-exception shortly. Our method now runs the effect that produces our counter value and then computes the TOTP value.
-
-This is a breaking API change, and we will need to update our consumers to account for the changes. Let's start
-with `Main`:
-
-```java
-public class Main {
-    public static void main(String[] args) {
-        generateSeed(64)
-                .<IO<Seed>>runReaderT(new SecureRandom())
-                .flatMap(seed -> generateInstance(seed, io(() -> new Counter(counterToBytes(System.currentTimeMillis() / 1000)))))
-                .flatMap(totp -> io(() -> System.out.println(totp)))
-                .unsafePerformIO();
-    }
-}
-```
-
-Because we have begun capturing our side effects, we can now run our entire program under a single `IO` operation. We
-start by running the `ReaderT` to produce the `IO` that holds our `Seed`, then we `flatMap` into the `IO` that produces
-our `TOTP`. Finally, printing to `stdout` is also a side effect, so we can `flatMap` into one final `IO` to produce our
-output. None of these `IO` operations are actually run until our call to `unsafePerformIO`. There are multiple options
-for running `IO` in lambda, but since we are running each effect strictly after the one that precedes it, options
-like `unsafePerformAsyncIO` to perform them in parallel don't apply in our scenario.
+Yet again, another radical departure. To callers, our method went from returning `String`,
+to `IO<Either<HmacFailure, TOTP>>`, which forces the caller to consider and appropriately handle failure. The only
+additional code here is to provide the arrow from `IO<Either<HmacFailure, HmacResult>>`
+to `IO<Either<HmacFailure, TOTP>>`, which we solve by calling `fmap` on the result of our `hash` method, then
+calling `biMapR`, which operates on the right value of our either and transforms it into its final form. We can
+use `biMapR` here because we are currently ok with preserving the failure type and only wish to transform the success
+of `hash`. The full implementation of our `Totp` class can be
+found [here](https://github.com/abedra/securing_security_software/blob/master/src/main/java/com/aaronbedra/swsec/Totp.java)
+.
 
 Next, we need to address the changes to our test. Now is a good time to
 introduce [Shōki](https://github.com/palatable/shoki), a purely functional, persistent data structures library. This is
-going to provide some better ergonomics for our test updates. Additionally, Shoki offers an implementation of `Natural`
-that will allow us to better express our input requirements.
+going to provide some better ergonomics for our test updates.
 
 ```xml
 
@@ -564,26 +472,26 @@ With Shoki in hand, let's update our tests:
 ```java
 public class TotpTest {
     @Test
-    public void endToEnd() {
+    public void googleAuthenticator() {
         Seed seed = new Seed("3132333435363738393031323334353637383930");
         StrictStack<Counter> counters = strictStack(
-                new Counter(counterToBytes(59L)),
-                new Counter(counterToBytes(1111111109L)),
-                new Counter(counterToBytes(1111111111L)),
-                new Counter(counterToBytes(1234567890L)),
-                new Counter(counterToBytes(2000000000L)),
-                new Counter(counterToBytes(20000000000L)));
+                counter(new TimeStamp(59L), timeStep30()),
+                counter(new TimeStamp(1111111109L), timeStep30()),
+                counter(new TimeStamp(1111111111L), timeStep30()),
+                counter(new TimeStamp(1234567890L), timeStep30()),
+                counter(new TimeStamp(2000000000L), timeStep30()),
+                counter(new TimeStamp(20000000000L), timeStep30()));
 
-        StrictQueue<TOTP> expected = strictQueue(
-                new TOTP("287082"),
-                new TOTP("081804"),
-                new TOTP("050471"),
-                new TOTP("005924"),
-                new TOTP("279037"),
-                new TOTP("353130"));
+        StrictQueue<Either<Failure, Totp>> expected = strictQueue(
+                right(new Totp("287082")),
+                right(new Totp("081804")),
+                right(new Totp("050471")),
+                right(new Totp("005924")),
+                right(new Totp("279037")),
+                right(new Totp("353130")));
 
-        StrictQueue<TOTP> actual = foldLeft(
-                (acc, value) -> acc.snoc(generateInstance(seed, io(() -> value)).unsafePerformIO()),
+        StrictQueue<Either<Failure, Totp>> actual = foldLeft(
+                (acc, value) -> acc.snoc(generateInstance(otp6(), hMacSHA1(), seed, value).unsafePerformIO()),
                 strictQueue(),
                 counters);
 
@@ -595,79 +503,86 @@ public class TotpTest {
 Along with updating our test to respect the new interface, we got rid of the older style `for` loop and landed with a
 single assertion. Because our objects are all immutable, we should be able to directly compare expected and actual, and
 get a proper equality check. The `foldLeft` operation takes the `Counter` values and accumulates the result of
-generating a `TOTP` value for each into a `StrictQueue`, so we can easily compare. You might be wondering why we need to
-wrap each of our `Counter` values in `IO`, and you would be right to question that. In our test there's no side effect
-happening to produce our value. The essential algebra is starting to reveal itself. Before we can get to that we need to
-do a little more refactoring, so let's leave the unnecessary `IO` here for now and continue forward.
-
-Let's move further into our `generateInstance` method where we quickly run across an invocation of the `hash` method.
-While it's not immediately obvious if the `hash` method isn't on screen, this is the first part of the algorithm that
-introduces failure. Let's take a look at the implementation of `hash`:
+generating a `TOTP` value for each into a `StrictQueue`, so we can easily compare. This fixes the compiler errors
+associated with our refactoring, and makes the test a little cleaner, but what about accounting for the newly added
+range of inputs? Let's create a test to cover the entire spectrum provided by the sample implementation
+in [RFC 6238](https://tools.ietf.org/html/rfc6238).
 
 ```java
-public final class Totp {
-    private static TotpBinary calculateTotp(HmacResult hmacResult) {
-        byte[] result = hmacResult.value();
-        int offset = result[result.length - 1] & 0xf;
-        return new TotpBinary(((result[offset] & 0x7f) << 24) |
-                ((result[offset + 1] & 0xff) << 16) |
-                ((result[offset + 2] & 0xff) << 8) |
-                ((result[offset + 3] & 0xff)));
-    }
+public class TotpTest {
+    @Test
+    public void rfc6238() {
+        Seed seed = new Seed("3132333435363738393031323334353637383930");
+        Seed seed32 = new Seed("3132333435363738393031323334353637383930313233343536373839303132");
+        Seed seed64 = new Seed("31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334");
 
-    private static TOTP buildTotp(TotpBinary totpBinary) {
-        StringBuilder code = new StringBuilder(Integer.toString(totpBinary.value() % POWER));
-        while (code.length() < DIGITS) {
-            code.insert(0, "0");
-        }
-        return new TOTP(code.toString());
+        StrictStack<Counter> counters = strictStack(
+                counter(new TimeStamp(59L), timeStep30()),
+                counter(new TimeStamp(1111111109L), timeStep30()),
+                counter(new TimeStamp(1111111111L), timeStep30()),
+                counter(new TimeStamp(1234567890L), timeStep30()),
+                counter(new TimeStamp(2000000000L), timeStep30()),
+                counter(new TimeStamp(20000000000L), timeStep30()));
+
+
+        StrictQueue<Either<Failure, Totp>> expectedSha1 = strictQueue(
+                right(new Totp("94287082")),
+                right(new Totp("07081804")),
+                right(new Totp("14050471")),
+                right(new Totp("89005924")),
+                right(new Totp("69279037")),
+                right(new Totp("65353130")));
+
+        StrictQueue<Either<Failure, Totp>> expectedSha256 = strictQueue(
+                right(new Totp("46119246")),
+                right(new Totp("68084774")),
+                right(new Totp("67062674")),
+                right(new Totp("91819424")),
+                right(new Totp("90698825")),
+                right(new Totp("77737706")));
+
+        StrictQueue<Either<Failure, Totp>> expectedSha512 = strictQueue(
+                right(new Totp("90693936")),
+                right(new Totp("25091201")),
+                right(new Totp("99943326")),
+                right(new Totp("93441116")),
+                right(new Totp("38618901")),
+                right(new Totp("47863826")));
+
+        StrictQueue<Either<Failure, Totp>> actualSha1 = foldLeft(
+                (acc, value) -> acc.snoc(generateInstance(otp8(), hMacSHA1(), seed, value).unsafePerformIO()),
+                strictQueue(),
+                counters);
+
+        StrictQueue<Either<Failure, Totp>> actualSha256 = foldLeft(
+                (acc, value) -> acc.snoc(generateInstance(otp8(), hMacSHA256(), seed32, value).unsafePerformIO()),
+                strictQueue(),
+                counters);
+
+        StrictQueue<Either<Failure, Totp>> actualSha512 = foldLeft(
+                (acc, value) -> acc.snoc(generateInstance(otp8(), hMacSHA512(), seed64, value).unsafePerformIO()),
+                strictQueue(),
+                counters);
+
+        assertEquals(expectedSha1, actualSha1);
+        assertEquals(expectedSha256, actualSha256);
+        assertEquals(expectedSha512, actualSha512);
     }
 }
 ```
 
-These two methods were hiding inside `generateInstance` and are easily extracted. They are clear independent chunks of
-our algorithm that can be expressed as such. With these out of the way we can transform `generateInstance` into a
-simpler form:
+This test represents full parity with the RFC implementation, which should provide additional confidence in our
+refactoring.
 
-```java
-public final class Totp {
-    public static IO<Either<HmacFailure, TOTP>> generateInstance(Seed seed, IO<Counter> counterIO) {
-        return counterIO.flatMap(counter -> hash(new HmacKey(hexToBytes(seed.value())), new HmacMessage(counter.value()))
-                .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
-                        .biMapR(hmacResult -> buildTotp(calculateTotp(hmacResult)))));
-    }
-}
-```
-
-Yet again, another radical departure. To callers, our method went from `IO<TOTP>`, which indicates a side effect but is
-expected to produce a `TOTP` when called, to `IO<Either<HmacFailure, TOTP>>`, which forces the caller to consider and
-appropriately handle failure. The only additional code here is to provide the arrow
-from `IO<Either<HmacFailure, HmacResult>>` to `IO<Either<HmacFailure, TOTP>>`, which we solve by calling `fmap` on the
-result of our `hash` method, then calling `biMapR`, which operates on the right value of our either and transforms it
-into its final form. We can use `biMapR` here because we are currently ok with preserving the failure type and only wish
-to transform the success of `hash`.
-
-A quick update to our test to introduce the `Either` into our expected values, and we will then compile properly again.
-Our `Main` class will continue to operate without change because printing an `Either` works as expected, producing
-something similar to the following:
-
-```
-Right{r=TOTP[value=025856]}
-```
-
-Our `Main` class would be the perfect place to reintroduce our logging functionality. It's not that we want to get rid
-of logging in our applications, it's that we want to defer logging until the time we actually produce values. This helps
-us keep our side effects sorted and lets us build better logging based on the context of the caller instead of the
-context of value production. Because we preserve the full fidelity of our failure we can build a log message of all
-inputs and outputs and construct errors that are more meaningful. Let's update our `Main` class to strictly handle
-success and failure:
+The last thing we need to do is update our `Main` class and get our example working again.
 
 ```java
 public class Main {
     public static void main(String[] args) {
         generateSeed(64)
                 .<IO<Seed>>runReaderT(new SecureRandom())
-                .flatMap(seed -> generateInstance(seed, io(() -> new Counter(counterToBytes(System.currentTimeMillis() / 1000)))))
+                .zip(now().fmap(tupler()))
+                .flatMap(into((timeStamp, seed) -> generateInstance(otp6(), hMacSHA1(), seed, counter(timeStamp, timeStep30()))))
                 .flatMap(failureOrTotp -> failureOrTotp.match(
                         hmacFailure -> io(() -> System.out.println(hmacFailure.value().getMessage())),
                         totp -> io(() -> System.out.println(totp))))
@@ -676,32 +591,51 @@ public class Main {
 }
 ```
 
-While this only changes the behavior of our program in a small way, it gives our program a clear and separate path for
-exhaustively handling the outcome of our OTP calculation.
-
-## Essential Complexity
-
-Now that we've got a slightly better handle on the assumptions of our `Totp` class, we can start to unpack the essential
-complexity required to accomplish our task. Let's start by peeking at what's hiding in the top of the class:
+This is where composition pays off very nicely. To better explain what's going on under the hood here we can break down
+all of the chained calls into their specific types:
 
 ```java
-public final class Totp {
-    private static final Logger log = LoggerFactory.getLogger(Totp.class);
-    private static final int SEED_LENGTH_IN_BYTES = 64;
-    private static final int POWER = 1000000;
-    private static final int PERIOD = 30;
-    private static final int DIGITS = 6;
+public class Main {
+    public static void main(String[] args) {
+        ReaderT<SecureRandom, IO<?>, Seed> seedReaderT = generateSeed(64);
+        IO<Seed> seedIO = seedReaderT.runReaderT(new SecureRandom());
+        IO<Tuple2<TimeStamp, Seed>> timeStampAndSeed = seedIO.zip(now().fmap(tupler()));
+        IO<Either<Failure, Totp>> failureOrInstance = timeStampAndSeed
+                .flatMap(into((timeStamp, seed) -> generateInstance(otp6(), hMacSHA1(), seed, counter(timeStamp, timeStep30()))));
+        IO<Unit> unitIO = failureOrInstance
+                .flatMap(failureOrTotp -> failureOrTotp.match(
+                        hmacFailure -> io(() -> System.out.println(hmacFailure.value().getMessage())),
+                        totp -> io(() -> System.out.println(totp))));
+        Unit __ = unitIO.unsafePerformIO();
+    }
 }
 ```
 
-If you are looking at this code in an IDE, it should have already pointed out that `log` and `SEED_LENGTH_IN_BYTES` are
-both no longer used. We can safely delete those immediately, and we should aim to delete the rest as well. The things
-these parameters represent, except logging, are all part of the OTP process, but this class has no business dictating
-exactly what they should be.
+Generating our seed returns a `ReaderT`. We run that `ReaderT` by supplying it an instance of `SecureRandom`. This
+allows the caller to control how randomness will behave. Our system should not dictate how random works, just that it is
+able to get random bytes. Since the `ReaderT` runs under `IO`, We will get an `IO` that when executed, returns our seed.
+Since `IO` composes very nicely in lambda, we don't need to run it just yet. We have plenty of additional side effects
+left in our method, and we will use `flatMap` to stitch them together. I could write an entire post on the ways to do
+that with lambda, but for now we can interpret this as each `IO` will execute strictly before the `IO` executed in
+the `flatMap` that follows it. The next thing we will do is get the current time. Our `now()` method returns an `IO`
+that, when executed, returns our `TimeStamp`. These operations are truly independent of each other, but are both
+required inputs for generating an instance of `Totp`. We use lambda's `zip` method and create a tuple that provides both
+for the next step. We can now call `generateInstance()` with enough information to get a value. Notice that we are
+using `OTP6`, `HmacSHA1`, and `TimeStep30`. Not only is this now safe by construction, it's very obvious exactly how the
+TOTP value will be generated. Since this call returns an `IO` that introduces failure, we will need to handle both the
+success and failure cases. We do this with `match`, and print the resulting value in both cases. At this point, we have
+constructed a single `IO` that fuses all of our side effects together. The last thing we need to do is
+call `unsafePerformIO()` to actually run the `IO` and produce our result. The resulting `UNIT` is simply for explanatory
+reasons so we can demonstrate that we are in fact returned with a real value after executing our code. A few keystrokes
+to inline all these variables will get us back to the originally presented version. Running it will produce something
+similar to the following:
 
-## Revisiting our Tests
+```
+Totp[value=441923]
+```
 
-TODO: Write
+That's it, we made it! It was quite a journey, but hopefully you have a new found appreciation of the details, and how
+they can apply to Software Security.
 
 ## Wrap-Up
 
