@@ -430,7 +430,7 @@ public class Totp {
 ```
 
 This separates out the calculation of the TOTP binary value as well as the construction of the final number. It also
-ditches the `while` loop that was padding the the value based on the `OTP` power. What's left, you might ask. Well, not
+ditches the `while` loop that was padding the value based on the `OTP` power. What's left, you might ask. Well, not
 much. The only thing left is to coordinate it all. That we can save for our `generateInstance()` method:
 
 ```java
@@ -639,7 +639,10 @@ they can apply to Software Security.
 
 ## Wrap-Up
 
-TODO: Write
+You may still be waiting for the rest of the security content. The answer is that we were applying it this whole time.
+If we look back at the definition of software security, the work done here supports almost all of these goals. Bonus
+points for TOTP being in the authentication domain. Correctness, testing, and protection from supplying inputs that
+cause the algorithm to function incorrectly.
 
 If you're looking to learn more about software security, I highly recommend checking
 out [Secure Code Warrior](https://www.securecodewarrior.com/). They have an excellent training platform, and
