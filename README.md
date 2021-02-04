@@ -323,7 +323,7 @@ account for the fact that generating a random number using CSPRNG has a side eff
 number of levels, let's try a more explicit representation:
 
 ```java
-public class Seed(String value) {
+public record Seed(String value) {
     public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
         return readerT(secureRandom -> io(() -> {
             byte[] randomBytes = new byte[length];
@@ -368,7 +368,7 @@ as possible, but in reality goes against expectations. The good news is, that we
 that's exactly what we are going to use in its place. We end up with the following:
 
 ```java
-public class Counter(byte[] value) {
+public record Counter(byte[] value) {
     public static Counter counter(TimeStamp timeStamp, TimeStep timeStep) {
         long counter = timeStamp.value() / timeStep.value();
         byte[] buffer = new byte[Long.SIZE / Byte.SIZE];
@@ -390,7 +390,7 @@ from the system to do our calculation, we will have one more side effect. To cap
 constructor `now` to our record to complete it:
 
 ```java
-public class TimeStamp(long value) {
+public record TimeStamp(long value) {
     public static IO<TimeStamp> now() {
         return io(() -> new TimeStamp(System.currentTimeMillis() / 1000));
     }
@@ -408,13 +408,13 @@ have left to set our sights on is `generateInstance()`. There's a lot going on h
 be. Let's start by splitting some of this up:
 
 ```java
-public class Totp {
+public record Totp(String value) {
     private static int calculate(HmacResult hmacResult) {
         byte[] result = hmacResult.value();
         int offset = result[result.length - 1] & 0xf;
-        return ((result[offset] & 0x7f) << 24) |
+        return ((result[offset]      & 0x7f) << 24) |
                 ((result[offset + 1] & 0xff) << 16) |
-                ((result[offset + 2] & 0xff) << 8) |
+                ((result[offset + 2] & 0xff) << 8)  |
                 ((result[offset + 3] & 0xff));
     }
 
@@ -434,7 +434,7 @@ ditches the `while` loop that was padding the value based on the `OTP` power. Wh
 much. The only thing left is to coordinate it all. That we can save for our `generateInstance()` method:
 
 ```java
-public class Totp(String value) {
+public record Totp(String value) {
     public static IO<Either<Failure, Totp>> generateInstance(OTP otp, HMac hMac, Seed seed, Counter counter) {
         return hMac.hash(seed, counter)
                 .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
