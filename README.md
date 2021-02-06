@@ -2,8 +2,6 @@
 
 # TODO
 
-* Add references to OWASP ASVS where appropriate
-* Add references to BSIMM where appropriate
 * Add failing tests
 * Explain the cost and trade offs on formal verification
 
@@ -205,6 +203,18 @@ this method should be generally considered part of the interface offered to supp
 ```
 
 The end-to-end test should now pass, and we have a viable baseline to use as we proceed.
+
+## Mapping the Process
+
+Because this post is already fairly heavy, I'll save the detailed mapping process for another time. I do think it's
+worth mentioning that part of Software Security is grounding your work and making sure you're applying methods that map
+to measurable outcomes. Some may disagree on this, but I find this to be useful from both a completeness of practice
+perspective as well as a security program management perspective. Doing this produces artifacts that make things like
+GRC, compliance, and program maturity measurement more successful and less labor intensive. You may already have
+processes around this, but I
+find [OWASP Application Security Verification Standard](https://owasp.org/www-project-application-security-verification-standard/)
+and [BSIMM](https://www.bsimm.com/) very useful guides that apply different but equally useful lenses to the application
+and maturity of Software Security.
 
 ## Finding the Essential Algebra
 
