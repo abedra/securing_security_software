@@ -715,6 +715,9 @@ approach, practicing Software Security should be on your requirements for delive
 the impact of better Software Security is software that operates correctly under failure, is better tested, and
 typically easier to understand.
 
+After completing this refactoring, I decided to turn the result into a full library. You can find the project
+at [https://github.com/abedra/chronometrophobia](https://github.com/abedra/chronometrophobia)
+
 If you're looking to learn more about software security, I highly recommend checking
 out [Secure Code Warrior](https://www.securecodewarrior.com/). They have an excellent training platform, and
 their [Sensei](https://www.securecodewarrior.com/sensei) IDE plugin is great at helping you and your team apply more
