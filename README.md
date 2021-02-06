@@ -7,13 +7,16 @@
 * Add failing tests
 * Explain the cost and trade offs on formal verification
 * Add some additional content around dependency management (other tools, links, cost of staying up to date, etc.)
-* Add links so some recent software security issues to back up these claims (sudo vuln, etc.)
 
 ## Introduction
 
 When it comes to software security, the devil is in the details. When it comes to security software, those details are
-even more important. Arguably, security software is one of the easier places to justify spending more time on software
-security. To separate the ideas I'm going to steal a quote from [Gary McGraw](https://twitter.com/cigitalgem)
+even more important. Just recently
+a [significant bug](https://blog.qualys.com/vulnerabilities-research/2021/01/26/cve-2021-3156-heap-based-buffer-overflow-in-sudo-baron-samedit)
+was found in sudo, demonstrating that even the most highly scrutinized software can still contain mistakes. Alexis
+King [beautifully captures](https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/) a method that would
+have made this bug impossible. Arguably, security software is one of the easier places to justify spending more time on
+software security. To separate the ideas I'm going to steal a quote from [Gary McGraw](https://twitter.com/cigitalgem)
 
 <blockquote class="twitter-tweet"><p lang="en" dir="ltr">Software security is about integrating security practices into the way you build software, not integrating security features into your code</p>&mdash; Gary McGraw (@cigitalgem) <a href="https://twitter.com/cigitalgem/status/641345011926237185?ref_src=twsrc%5Etfw">September 8, 2015</a></blockquote> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 
@@ -332,15 +335,15 @@ account for the fact that generating a random number using CSPRNG has a side eff
 number of levels, let's try a more explicit representation:
 
 ```java
-public record Seed(String value) {
-    public static ReaderT<SecureRandom, IO<?>, Seed> generateSeed(int length) {
-        return readerT(secureRandom -> io(() -> {
-            byte[] randomBytes = new byte[length];
-            secureRandom.nextBytes(randomBytes);
-            return new Seed(encodeHexString(randomBytes));
+public record Seed(String value){
+public static ReaderT<SecureRandom, IO<?>,Seed>generateSeed(int length){
+        return readerT(secureRandom->io(()->{
+        byte[]randomBytes=new byte[length];
+        secureRandom.nextBytes(randomBytes);
+        return new Seed(encodeHexString(randomBytes));
         }));
-    }
-}
+        }
+        }
 ```
 
 It is important to note that we have now taken the first step toward parameterizing both the mechanism that produces
@@ -377,17 +380,17 @@ as possible, but in reality goes against expectations. The good news is, that we
 that's exactly what we are going to use in its place. We end up with the following:
 
 ```java
-public record Counter(byte[] value) {
-    public static Counter counter(TimeStamp timeStamp, TimeStep timeStep) {
-        long counter = timeStamp.value() / timeStep.value();
-        byte[] buffer = new byte[Long.SIZE / Byte.SIZE];
-        for (int i = 7; i >= 0; i--) {
-            buffer[i] = (byte) (counter & 0xff);
-            counter = counter >> 8;
+public record Counter(byte[]value){
+public static Counter counter(TimeStamp timeStamp,TimeStep timeStep){
+        long counter=timeStamp.value()/timeStep.value();
+        byte[]buffer=new byte[Long.SIZE/Byte.SIZE];
+        for(int i=7;i>=0;i--){
+        buffer[i]=(byte)(counter&0xff);
+        counter=counter>>8;
         }
         return new Counter(buffer);
-    }
-}
+        }
+        }
 ```
 
 The implementation hasn't changed much. We made the time step an explicit requirement, and introduce a tiny type for the
@@ -399,11 +402,11 @@ from the system to do our calculation, we will have one more side effect. To cap
 constructor `now` to our record to complete it:
 
 ```java
-public record TimeStamp(long value) {
-    public static IO<TimeStamp> now() {
-        return io(() -> new TimeStamp(System.currentTimeMillis() / 1000));
-    }
-}
+public record TimeStamp(long value){
+public static IO<TimeStamp> now(){
+        return io(()->new TimeStamp(System.currentTimeMillis()/1000));
+        }
+        }
 ```
 
 Here we remove the underlying assumption around what really happens when we reach for the system clock. This also lets
@@ -417,25 +420,25 @@ have left to set our sights on is `generateInstance()`. There's a lot going on h
 be. Let's start by splitting some of this up:
 
 ```java
-public record Totp(String value) {
-    private static int calculate(HmacResult hmacResult) {
-        byte[] result = hmacResult.value();
-        int offset = result[result.length - 1] & 0xf;
-        return ((result[offset]      & 0x7f) << 24) |
-                ((result[offset + 1] & 0xff) << 16) |
-                ((result[offset + 2] & 0xff) << 8)  |
-                ((result[offset + 3] & 0xff));
-    }
+public record Totp(String value){
+private static int calculate(HmacResult hmacResult){
+        byte[]result=hmacResult.value();
+        int offset=result[result.length-1]&0xf;
+        return((result[offset]&0x7f)<<24)|
+        ((result[offset+1]&0xff)<<16)|
+        ((result[offset+2]&0xff)<<8)|
+        ((result[offset+3]&0xff));
+        }
 
-    private static Totp totp(int totpBinary, OTP otp) {
-        String code = Integer.toString(totpBinary % otp.power().value());
-        int length = otp.digits().value() - code.length();
+private static Totp totp(int totpBinary,OTP otp){
+        String code=Integer.toString(totpBinary%otp.power().value());
+        int length=otp.digits().value()-code.length();
 
-        return length > 0
-                ? new Totp("0".repeat(length) + code)
-                : new Totp(code);
-    }
-}
+        return length>0
+        ?new Totp("0".repeat(length)+code)
+        :new Totp(code);
+        }
+        }
 ```
 
 This separates out the calculation of the TOTP binary value as well as the construction of the final number. It also
@@ -443,13 +446,13 @@ ditches the `while` loop that was padding the value based on the `OTP` power. Wh
 much. The only thing left is to coordinate it all. That we can save for our `generateInstance()` method:
 
 ```java
-public record Totp(String value) {
-    public static IO<Either<Failure, Totp>> generateInstance(OTP otp, HMac hMac, Seed seed, Counter counter) {
-        return hMac.hash(seed, counter)
-                .fmap(eitherFailureHmacResult -> eitherFailureHmacResult
-                        .biMapR(hmacResult -> totp(calculate(hmacResult), otp)));
-    }
-}
+public record Totp(String value){
+public static IO<Either<Failure, Totp>>generateInstance(OTP otp,HMac hMac,Seed seed,Counter counter){
+        return hMac.hash(seed,counter)
+        .fmap(eitherFailureHmacResult->eitherFailureHmacResult
+        .biMapR(hmacResult->totp(calculate(hmacResult),otp)));
+        }
+        }
 ```
 
 Yet again, another radical departure. To callers, our method went from returning `String`,
