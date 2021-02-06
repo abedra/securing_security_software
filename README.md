@@ -6,7 +6,6 @@
 * Add references to BSIMM where appropriate
 * Add failing tests
 * Explain the cost and trade offs on formal verification
-* Add some additional content around dependency management (other tools, links, cost of staying up to date, etc.)
 
 ## Introduction
 
@@ -74,6 +73,55 @@ first run out of the way so subsequent runs and execute faster.
 mvn dependency-check:aggregate
 ```
 
+Keeping up with dependencies should be a first class concept in your SDLC. In reality, you should update your
+dependencies as often as possible. If you only wait for security issues to update dependencies, you could be left with
+expensive upgrade paths that touch code that has long since fallen out of context with your team. To do this we can add
+the [Versions Maven Plugin](https://www.mojohaus.org/versions-maven-plugin/) to our project
+
+```xml
+
+<plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>versions-maven-plugin</artifactId>
+    <version>2.8.1</version>
+</plugin>
+```
+
+If we run our new target we can see that we may have some things to address:
+
+```shell
+mvn versions:display-dependency-updates
+```
+
+```
+[INFO] The following dependencies in Dependencies have newer versions:
+[INFO]   commons-codec:commons-codec ............................. 1.11 -> 1.15
+[INFO]   org.slf4j:slf4j-api ........................... 1.7.25 -> 2.0.0-alpha1
+[INFO]   org.slf4j:slf4j-simple ........................ 1.7.25 -> 2.0.0-alpha1
+```
+
+While a major version upgrade is out of scope for this post, ideally we would address all of these. The good news is
+that the `slf4j` will be completely unused by the time we are done with this exercise and can simply be deleted from our
+project. A quick bump from `1.11` to `1.15` on `commons-codec` will be a quick win and we should proceed with that right
+away.
+
+```diff
+<dependency>
+    <groupId>commons-codec</groupId>
+    <artifactId>commons-codec</artifactId>
+-    <version>1.11</version>
++    <version>1.15</version>
+</dependency>
+```
+
+Along with keeping up to date I highly recommend adding
+the [Maven Enforcer Plugin](https://maven.apache.org/enforcer/maven-enforcer-plugin/) to ensure multiple versions of the
+same dependency brought in via dependency resolution do not result in loading outdated, and possibly vulnerable
+dependencies.
+
+These types of tools are readily available in most programming languages and I encourage you to add this practice to all
+of your projects.
+
 ## An Updated Language Version
 
 The original project was built using Java 8. Java 8 is now well past its end of life and upgrading should be seriously
@@ -109,7 +157,7 @@ dependency, and we are a method call replacement away from compiling properly ag
 ## Adding Tests
 
 Time for a mea culpa on my part. This code completely omitted tests and there's no excuse for that. For something as
-important as this it's especially offensive to not have some kind of verification that the algorithm was implemented
+important as this it's particularly offensive to not have some kind of verification that the algorithm was implemented
 correctly. Why are we discussing tests in a post about Software Security? Writing tests are 100% a part of Software
 Security, full stop. Let's revisit the [definition](https://www.techopedia.com/definition/24866/software-security) of
 Software Security
@@ -218,7 +266,7 @@ CoProducts, this might look something like:
 data TimeStep = TimeStep30 | TimeStep60 | TimeStep90 deriving (Show)
 ```
 
-The resulting Java code is long enough that I prefer linking instead of a direct copy and paste. The result and be
+The resulting Java code is long enough that I prefer linking instead of a direct copy and paste. The result can be
 found [here](https://github.com/abedra/securing_security_software/blob/master/src/main/java/com/aaronbedra/swsec/TimeStep.java)
 . While there's a lot of ceremony under the hood, the real interface is provided by the `timeStep30()`, `timeStep60()`,
 and `timeStep90()` methods. Notice that each of the `TimeStep` inner classes carries a value, which ensures that the
