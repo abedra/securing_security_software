@@ -1,10 +1,5 @@
 # Applying Software Security to Security Software
 
-# TODO
-
-* Add failing tests
-* Explain the cost and trade offs on formal verification
-
 ## Introduction
 
 When it comes to software security, the devil is in the details. When it comes to security software, those details are
@@ -712,7 +707,13 @@ they can apply to Software Security.
 You may still be waiting for the rest of the security content. The answer is that we were applying it this whole time.
 If we look back at the definition of software security, the work done here supports almost all of these goals. Bonus
 points for TOTP being in the authentication domain. Correctness, testing, and protection from supplying inputs that
-cause the algorithm to function incorrectly.
+cause the algorithm to function incorrectly. At times you may have wondered how far to actually go with these concepts.
+Providing type level evidence of correctness is not always easy or straight forward, and working towards a more
+verifiable model always carries a higher cost. Some people subscribe to this type of programming as a way of life, some
+as a tool to assist in solving complex problems, and some not at all. Not matter your thoughts on this specific
+approach, practicing Software Security should be on your requirements for delivery of software. When applied properly,
+the impact of better Software Security is software that operates correctly under failure, is better tested, and
+typically easier to understand.
 
 If you're looking to learn more about software security, I highly recommend checking
 out [Secure Code Warrior](https://www.securecodewarrior.com/). They have an excellent training platform, and
